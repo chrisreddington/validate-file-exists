@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
-import { wait } from './wait'
+import * as fs from 'fs/promises'
+import * as path from 'path'
 
 /**
  * The main function for the action.
@@ -7,20 +8,30 @@ import { wait } from './wait'
  */
 export async function run(): Promise<void> {
   try {
-    const ms: string = core.getInput('milliseconds')
+    const files: string = core.getInput('files', { required: true })
+    const fileList = files.split(',').map(f => f.trim())
+    const missingFiles: string[] = []
 
-    // Debug logs are only output if the `ACTIONS_STEP_DEBUG` secret is true
-    core.debug(`Waiting ${ms} milliseconds ...`)
+    // Check each file
+    for (const file of fileList) {
+      const fullPath = path.resolve(file)
+      try {
+        await fs.access(fullPath)
+        core.debug(`File exists: ${file}`)
+      } catch {
+        missingFiles.push(file)
+      }
+    }
 
-    // Log the current timestamp, wait, then log the new timestamp
-    core.debug(new Date().toTimeString())
-    await wait(parseInt(ms, 10))
-    core.debug(new Date().toTimeString())
+    // Handle results
+    if (missingFiles.length > 0) {
+      throw new Error(
+        `The following files do not exist: ${missingFiles.join(', ')}`
+      )
+    }
 
-    // Set outputs for other workflow steps to use
-    core.setOutput('time', new Date().toTimeString())
+    core.setOutput('exists', 'true')
   } catch (error) {
-    // Fail the workflow run if an error occurs
     if (error instanceof Error) core.setFailed(error.message)
   }
 }

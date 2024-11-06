@@ -1,6 +1,8 @@
-name: 'The name of your action here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: 'File exists validator'
+description:
+  'This action validates the existence of a file when provided a comma separated
+  list of files'
+author: 'chrisreddington'
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
@@ -9,15 +11,14 @@ branding:
 
 # Define your inputs here.
 inputs:
-  milliseconds:
-    description: 'Your input description here'
+  files:
+    description: 'Comma-separated list of files to validate'
     required: true
-    default: '1000'
 
 # Define your outputs here.
 outputs:
-  time:
-    description: 'Your output description here'
+  exists:
+    description: 'Returns true if all files exist'
 
 runs:
   using: node20

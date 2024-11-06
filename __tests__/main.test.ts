@@ -1,89 +1,53 @@
-/**
- * Unit tests for the action's main functionality, src/main.ts
- *
- * These should be run as if the action was called from a workflow.
- * Specifically, the inputs listed in `action.yml` should be set as environment
- * variables following the pattern `INPUT_<INPUT_NAME>`.
- */
-
 import * as core from '@actions/core'
+import * as fs from 'fs/promises'
+import { PathLike } from 'fs'
 import * as main from '../src/main'
 
-// Mock the action's main function
-const runMock = jest.spyOn(main, 'run')
-
-// Other utilities
-const timeRegex = /^\d{2}:\d{2}:\d{2}/
+// Mocks
+jest.mock('fs/promises')
 
 // Mock the GitHub Actions core library
 let debugMock: jest.SpiedFunction<typeof core.debug>
-let errorMock: jest.SpiedFunction<typeof core.error>
 let getInputMock: jest.SpiedFunction<typeof core.getInput>
 let setFailedMock: jest.SpiedFunction<typeof core.setFailed>
 let setOutputMock: jest.SpiedFunction<typeof core.setOutput>
 
-describe('action', () => {
+describe('file checker action', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-
-    debugMock = jest.spyOn(core, 'debug').mockImplementation()
-    errorMock = jest.spyOn(core, 'error').mockImplementation()
-    getInputMock = jest.spyOn(core, 'getInput').mockImplementation()
-    setFailedMock = jest.spyOn(core, 'setFailed').mockImplementation()
-    setOutputMock = jest.spyOn(core, 'setOutput').mockImplementation()
+    debugMock = jest.spyOn(core, 'debug').mockImplementation(() => {})
+    getInputMock = jest.spyOn(core, 'getInput').mockImplementation(() => '')
+    setFailedMock = jest.spyOn(core, 'setFailed').mockImplementation(() => {})
+    setOutputMock = jest.spyOn(core, 'setOutput').mockImplementation(() => {})
   })
 
-  it('sets the time output', async () => {
-    // Set the action's inputs as return values from core.getInput()
-    getInputMock.mockImplementation(name => {
-      switch (name) {
-        case 'milliseconds':
-          return '500'
-        default:
-          return ''
+  it('succeeds when all files exist', async () => {
+    getInputMock.mockReturnValue('file1.txt,file2.txt')
+    // Mock fs.access to resolve successfully
+    jest.spyOn(fs, 'access').mockResolvedValue(undefined)
+
+    await main.run()
+
+    expect(debugMock).toHaveBeenCalledWith('File exists: file1.txt')
+    expect(debugMock).toHaveBeenCalledWith('File exists: file2.txt')
+    expect(setOutputMock).toHaveBeenCalledWith('exists', 'true')
+    expect(setFailedMock).not.toHaveBeenCalled()
+  })
+
+  it('fails when files are missing', async () => {
+    getInputMock.mockReturnValue('file1.txt,missing.txt')
+    // Mock fs.access to fail for missing.txt
+    jest.spyOn(fs, 'access').mockImplementation(async (path: PathLike) => {
+      if (path.toString().includes('missing.txt')) {
+        return Promise.reject(new Error('File not found'))
       }
+      return Promise.resolve(undefined)
     })
 
     await main.run()
-    expect(runMock).toHaveReturned()
 
-    // Verify that all of the core library functions were called correctly
-    expect(debugMock).toHaveBeenNthCalledWith(1, 'Waiting 500 milliseconds ...')
-    expect(debugMock).toHaveBeenNthCalledWith(
-      2,
-      expect.stringMatching(timeRegex)
+    expect(setFailedMock).toHaveBeenCalledWith(
+      'The following files do not exist: missing.txt'
     )
-    expect(debugMock).toHaveBeenNthCalledWith(
-      3,
-      expect.stringMatching(timeRegex)
-    )
-    expect(setOutputMock).toHaveBeenNthCalledWith(
-      1,
-      'time',
-      expect.stringMatching(timeRegex)
-    )
-    expect(errorMock).not.toHaveBeenCalled()
-  })
-
-  it('sets a failed status', async () => {
-    // Set the action's inputs as return values from core.getInput()
-    getInputMock.mockImplementation(name => {
-      switch (name) {
-        case 'milliseconds':
-          return 'this is not a number'
-        default:
-          return ''
-      }
-    })
-
-    await main.run()
-    expect(runMock).toHaveReturned()
-
-    // Verify that all of the core library functions were called correctly
-    expect(setFailedMock).toHaveBeenNthCalledWith(
-      1,
-      'milliseconds not a number'
-    )
-    expect(errorMock).not.toHaveBeenCalled()
   })
 })
