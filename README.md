@@ -1,6 +1,10 @@
 # Validate File Exists Action
 
-![CI](https://github.com/actions/typescript-action/actions/workflows/ci.yml/badge.svg)
+
+[![GitHub Super-Linter](https://github.com/chrisreddington/validate-file-exists/actions/workflows/linter.yml/badge.svg)](https://github.com/chrisreddington/validate-file-exists)
+![CI](https://github.com/chrisreddington/validate-file-exists/actions/workflows/ci.yml/badge.svg)
+[![Check dist/](https://github.com/chrisreddington/validate-file-exists/actions/workflows/check-dist.yml/badge.svg)](https://github.com/chrisreddington/validate-file-exists/actions/workflows/check-dist.yml)
+[![CodeQL](https://github.com/chrisreddington/validate-file-exists/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/chrisreddington/validate-file-exists/actions/workflows/codeql-analysis.yml)
 [![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
 
 A GitHub Action that validates whether specified files exist in your repository.
