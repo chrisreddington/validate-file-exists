@@ -1,6 +1,5 @@
 # Validate File Exists Action
 
-
 [![GitHub Super-Linter](https://github.com/chrisreddington/validate-file-exists/actions/workflows/linter.yml/badge.svg)](https://github.com/chrisreddington/validate-file-exists)
 ![CI](https://github.com/chrisreddington/validate-file-exists/actions/workflows/ci.yml/badge.svg)
 [![Check dist/](https://github.com/chrisreddington/validate-file-exists/actions/workflows/check-dist.yml/badge.svg)](https://github.com/chrisreddington/validate-file-exists/actions/workflows/check-dist.yml)
