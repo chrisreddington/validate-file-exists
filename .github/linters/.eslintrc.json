@@ -11,7 +11,7 @@
   "ignorePatterns": [
     "!.*",
     "**/node_modules/.*",
-    "**/dist/.*", 
+    "**/dist/.*",
     "**/coverage/.*",
     "*.json"
   ],
@@ -19,15 +19,9 @@
   "parserOptions": {
     "ecmaVersion": 2023,
     "sourceType": "module",
-    "project": [
-      "./.github/linters/tsconfig.json",
-      "./tsconfig.json"
-    ]
+    "project": ["./.github/linters/tsconfig.json", "./tsconfig.json"]
   },
-  "plugins": [
-    "jest",
-    "@typescript-eslint"
-  ],
+  "plugins": ["jest", "@typescript-eslint"],
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended-type-checked",
@@ -43,8 +37,14 @@
     "semi": "off",
     "@typescript-eslint/array-type": "error",
     "@typescript-eslint/consistent-type-assertions": "error",
-    "@typescript-eslint/explicit-member-accessibility": ["error", { "accessibility": "no-public" }],
-    "@typescript-eslint/explicit-function-return-type": ["error", { "allowExpressions": true }],
+    "@typescript-eslint/explicit-member-accessibility": [
+      "error",
+      { "accessibility": "no-public" }
+    ],
+    "@typescript-eslint/explicit-function-return-type": [
+      "error",
+      { "allowExpressions": true }
+    ],
     "@typescript-eslint/no-empty-interface": "error",
     "@typescript-eslint/no-extraneous-class": "error",
     "@typescript-eslint/no-inferrable-types": "error",
