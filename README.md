@@ -48,11 +48,11 @@ steps:
 If any of the specified files are missing, the action will:
 
 1. Fail with a detailed error message listing all missing files
-2. Exit with a non-zero status code, which will cause the workflow to fail
+1. Exit with a non-zero status code, which will cause the workflow to fail
 
 Example error message:
 
-```
+```bash
 Error: The following files do not exist: config.json, settings.yml
 ```
 
