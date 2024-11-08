@@ -12,9 +12,9 @@ your workflow, which is useful for validation steps or pre-deployment checks.
 
 ## Inputs
 
-| Input   | Description                                          | Required |
-| ------- | ---------------------------------------------------- | -------- |
-| `files` | Comma-separated list of files to check for existence | Yes      |
+| Input            | Description                                          | Required |
+| ---------------- | ---------------------------------------------------- | -------- |
+| `required-files` | Comma-separated list of files to check for existence | Yes      |
 
 ## Outputs
 
@@ -30,7 +30,7 @@ your workflow, which is useful for validation steps or pre-deployment checks.
 steps:
   - uses: actions/checkout@v3
   - name: Validate configuration files
-    uses: your-username/validate-file-exists@v1
+    uses: chrisreddington/validate-file-exists@v1
     with:
       files: config.json
 ```
@@ -41,7 +41,7 @@ steps:
 steps:
   - uses: actions/checkout@v3
   - name: Validate configuration files
-    uses: your-username/validate-file-exists@v1
+    uses: chrisreddington/validate-file-exists@v1
     with:
       files: config.json,settings.yml,env.development
 ```

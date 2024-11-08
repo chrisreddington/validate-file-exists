@@ -25674,7 +25674,7 @@ const path = __importStar(__nccwpck_require__(6928));
  */
 async function run() {
     try {
-        const files = core.getInput('files', { required: true });
+        const files = core.getInput('required-files', { required: true });
         const fileList = files.split(',').map(f => f.trim());
         const missingFiles = [];
         // Check each file

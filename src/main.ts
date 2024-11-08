@@ -8,7 +8,7 @@ import * as path from 'path'
  */
 export async function run(): Promise<void> {
   try {
-    const files: string = core.getInput('files', { required: true })
+    const files: string = core.getInput('required-files', { required: true })
     const fileList = files.split(',').map(f => f.trim())
     const missingFiles: string[] = []
 

@@ -11,7 +11,7 @@ branding:
 
 # Define your inputs here.
 inputs:
-  files:
+  required-files:
     description: 'Comma-separated list of files to validate'
     required: true
 
