@@ -19,6 +19,7 @@ export async function run(): Promise<void> {
         await fs.access(fullPath)
         core.debug(`File exists: ${file}`)
       } catch {
+        core.debug(`File does not exist: ${file}`)
         missingFiles.push(file)
       }
     }

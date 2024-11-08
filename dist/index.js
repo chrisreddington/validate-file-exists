@@ -25685,6 +25685,7 @@ async function run() {
                 core.debug(`File exists: ${file}`);
             }
             catch {
+                core.debug(`File does not exist: ${file}`);
                 missingFiles.push(file);
             }
         }
