@@ -57,7 +57,7 @@ jobs:
         id: test-action
         uses: ./
         with:
-          files: 'src/main.ts, src/index.ts'
+          required-files: 'src/main.ts, src/index.ts'
 
       - name: Print Output
         id: output
