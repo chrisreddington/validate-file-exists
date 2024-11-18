@@ -4,7 +4,9 @@
   "postCreateCommand": "npm install",
   "customizations": {
     "codespaces": {
-      "openFiles": ["README.md"]
+      "openFiles": [
+        "README.md"
+      ]
     },
     "vscode": {
       "extensions": [
@@ -12,6 +14,7 @@
         "davidanson.vscode-markdownlint",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
+        "github.codespaces",
         "github.copilot",
         "github.copilot-workspace",
         "GitHub.remotehub",
