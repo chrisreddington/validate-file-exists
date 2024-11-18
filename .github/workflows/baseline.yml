@@ -1,0 +1,20 @@
+name: Validate Repository Configuration
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate Baseline Configuration
+    uses: chrisreddington/reusable-workflows/.github/workflows/baseline-validator.yml@main
+    with:
+      required-features:
+        'ghcr.io/devcontainers/features/github-cli:1,
+        ghcr.io/devcontainers-contrib/features/prettier:1'

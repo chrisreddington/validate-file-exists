@@ -25635,6 +25635,70 @@ module.exports = {
 
 /***/ }),
 
+/***/ 747:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.FileValidator = void 0;
+const fs = __importStar(__nccwpck_require__(1943));
+const path = __importStar(__nccwpck_require__(6928));
+const core = __importStar(__nccwpck_require__(7484));
+class FileValidator {
+    /**
+     * Validates if the specified files exist
+     * @param files Comma-separated list of files to check
+     * @returns Promise<FileValidationResult>
+     */
+    async validateFiles(files) {
+        const fileList = files.split(',').map(f => f.trim());
+        const missingFiles = [];
+        for (const file of fileList) {
+            const fullPath = path.resolve(file);
+            try {
+                await fs.access(fullPath);
+                core.debug(`File exists: ${file}`);
+            }
+            catch {
+                core.debug(`File does not exist: ${file}`);
+                missingFiles.push(file);
+            }
+        }
+        return {
+            exists: missingFiles.length === 0,
+            missingFiles
+        };
+    }
+}
+exports.FileValidator = FileValidator;
+
+
+/***/ }),
+
 /***/ 1730:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -25666,8 +25730,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.run = run;
 const core = __importStar(__nccwpck_require__(7484));
-const fs = __importStar(__nccwpck_require__(1943));
-const path = __importStar(__nccwpck_require__(6928));
+const fileValidator_1 = __nccwpck_require__(747);
 /**
  * The main function for the action.
  * @returns {Promise<void>} Resolves when the action is complete.
@@ -25675,23 +25738,10 @@ const path = __importStar(__nccwpck_require__(6928));
 async function run() {
     try {
         const files = core.getInput('required-files', { required: true });
-        const fileList = files.split(',').map(f => f.trim());
-        const missingFiles = [];
-        // Check each file
-        for (const file of fileList) {
-            const fullPath = path.resolve(file);
-            try {
-                await fs.access(fullPath);
-                core.debug(`File exists: ${file}`);
-            }
-            catch {
-                core.debug(`File does not exist: ${file}`);
-                missingFiles.push(file);
-            }
-        }
-        // Handle results
-        if (missingFiles.length > 0) {
-            throw new Error(`The following files do not exist: ${missingFiles.join(', ')}`);
+        const validator = new fileValidator_1.FileValidator();
+        const result = await validator.validateFiles(files);
+        if (!result.exists) {
+            throw new Error(`The following files do not exist: ${result.missingFiles.join(', ')}`);
         }
         core.setOutput('exists', 'true');
     }
