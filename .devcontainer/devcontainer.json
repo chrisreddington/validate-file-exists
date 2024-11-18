@@ -13,6 +13,9 @@
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "github.copilot",
+        "github.copilot-workspace",
+        "GitHub.remotehub",
+        "GitHub.vscode-codeql",
         "github.copilot-chat",
         "github.vscode-github-actions",
         "github.vscode-pull-request-github",
@@ -37,5 +40,10 @@
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/devcontainers-contrib/features/prettier:1": {}
+  },
+  "tasks": {
+    "build": "npm run bundle",
+    "test": "npm run ci-test",
+    "run": "npm run all"
   }
 }

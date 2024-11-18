@@ -1,52 +1,59 @@
 import * as core from '@actions/core'
-import * as fs from 'fs/promises'
-import { PathLike } from 'fs'
+import { FileValidator } from '../src/fileValidator'
 import * as main from '../src/main'
 
-// Mocks
-jest.mock('fs/promises')
+/**
+ * Mock implementation of the FileValidator class
+ */
+jest.mock('../src/fileValidator')
 
-// Mock the GitHub Actions core library
-let debugMock: jest.SpiedFunction<typeof core.debug>
-let getInputMock: jest.SpiedFunction<typeof core.getInput>
-let setFailedMock: jest.SpiedFunction<typeof core.setFailed>
-let setOutputMock: jest.SpiedFunction<typeof core.setOutput>
+// Mock GitHub Actions core function types
+let mockGetInput: jest.SpiedFunction<typeof core.getInput>
+let mockSetFailed: jest.SpiedFunction<typeof core.setFailed>
+let mockSetOutput: jest.SpiedFunction<typeof core.setOutput>
 
-describe('file checker action', () => {
+/**
+ * Test suite for the GitHub Action's main integration functionality
+ */
+describe('GitHub Action Integration', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    debugMock = jest.spyOn(core, 'debug').mockImplementation(() => {})
-    getInputMock = jest.spyOn(core, 'getInput').mockImplementation(() => '')
-    setFailedMock = jest.spyOn(core, 'setFailed').mockImplementation(() => {})
-    setOutputMock = jest.spyOn(core, 'setOutput').mockImplementation(() => {})
+    mockGetInput = jest.spyOn(core, 'getInput').mockImplementation(() => '')
+    mockSetFailed = jest.spyOn(core, 'setFailed').mockImplementation(() => {})
+    mockSetOutput = jest.spyOn(core, 'setOutput').mockImplementation(() => {})
   })
 
-  it('succeeds when all files exist', async () => {
-    getInputMock.mockReturnValue('file1.txt,file2.txt')
-    // Mock fs.access to resolve successfully
-    jest.spyOn(fs, 'access').mockResolvedValue(undefined)
-
-    await main.run()
-
-    expect(debugMock).toHaveBeenCalledWith('File exists: file1.txt')
-    expect(debugMock).toHaveBeenCalledWith('File exists: file2.txt')
-    expect(setOutputMock).toHaveBeenCalledWith('exists', 'true')
-    expect(setFailedMock).not.toHaveBeenCalled()
-  })
-
-  it('fails when files are missing', async () => {
-    getInputMock.mockReturnValue('file1.txt,missing.txt')
-    // Mock fs.access to fail for missing.txt
-    jest.spyOn(fs, 'access').mockImplementation(async (path: PathLike) => {
-      if (path.toString().includes('missing.txt')) {
-        return Promise.reject(new Error('File not found'))
-      }
-      return Promise.resolve(undefined)
+  /**
+   * Test case: Verifies that the action succeeds when all files are found
+   */
+  it('succeeds when FileValidator reports all files exist', async () => {
+    mockGetInput.mockReturnValue('file1.txt,file2.txt')
+    const mockValidator = jest.mocked(FileValidator)
+    mockValidator.prototype.validateFiles.mockResolvedValue({
+      exists: true,
+      missingFiles: []
     })
 
     await main.run()
 
-    expect(setFailedMock).toHaveBeenCalledWith(
+    expect(mockSetOutput).toHaveBeenCalledWith('exists', 'true')
+    expect(mockSetFailed).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Test case: Verifies that the action fails appropriately when files are missing
+   */
+  it('fails when FileValidator reports missing files', async () => {
+    mockGetInput.mockReturnValue('file1.txt,missing.txt')
+    const mockValidator = jest.mocked(FileValidator)
+    mockValidator.prototype.validateFiles.mockResolvedValue({
+      exists: false,
+      missingFiles: ['missing.txt']
+    })
+
+    await main.run()
+
+    expect(mockSetFailed).toHaveBeenCalledWith(
       'The following files do not exist: missing.txt'
     )
   })

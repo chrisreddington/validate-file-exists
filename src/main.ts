@@ -1,6 +1,5 @@
 import * as core from '@actions/core'
-import * as fs from 'fs/promises'
-import * as path from 'path'
+import { FileValidator } from './fileValidator'
 
 /**
  * The main function for the action.
@@ -9,25 +8,12 @@ import * as path from 'path'
 export async function run(): Promise<void> {
   try {
     const files: string = core.getInput('required-files', { required: true })
-    const fileList = files.split(',').map(f => f.trim())
-    const missingFiles: string[] = []
+    const validator = new FileValidator()
+    const result = await validator.validateFiles(files)
 
-    // Check each file
-    for (const file of fileList) {
-      const fullPath = path.resolve(file)
-      try {
-        await fs.access(fullPath)
-        core.debug(`File exists: ${file}`)
-      } catch {
-        core.debug(`File does not exist: ${file}`)
-        missingFiles.push(file)
-      }
-    }
-
-    // Handle results
-    if (missingFiles.length > 0) {
+    if (!result.exists) {
       throw new Error(
-        `The following files do not exist: ${missingFiles.join(', ')}`
+        `The following files do not exist: ${result.missingFiles.join(', ')}`
       )
     }
 
