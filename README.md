@@ -33,7 +33,7 @@ steps:
   - name: Validate configuration files
     uses: chrisreddington/validate-file-exists@v0.0.1
     with:
-      files: config.json
+      files: README.md
 ```
 
 ### Multiple Files Example
@@ -44,7 +44,7 @@ steps:
   - name: Validate configuration files
     uses: chrisreddington/validate-file-exists@v0.0.1
     with:
-      files: config.json,settings.yml,env.development
+      files: 'README.md, .github/copilot-instructions.md'
 ```
 
 ### Error Handling
