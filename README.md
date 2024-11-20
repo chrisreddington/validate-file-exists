@@ -28,9 +28,9 @@ your workflow, which is useful for validation steps or pre-deployment checks.
 
 ```yaml
 steps:
-  - uses: actions/checkout@v3
+  - uses: actions/checkout@v4
   - name: Validate configuration files
-    uses: chrisreddington/validate-file-exists@v1
+    uses: chrisreddington/validate-file-exists@v0.0.1
     with:
       files: config.json
 ```
@@ -39,9 +39,9 @@ steps:
 
 ```yaml
 steps:
-  - uses: actions/checkout@v3
+  - uses: actions/checkout@v4
   - name: Validate configuration files
-    uses: chrisreddington/validate-file-exists@v1
+    uses: chrisreddington/validate-file-exists@v0.0.1
     with:
       files: config.json,settings.yml,env.development
 ```

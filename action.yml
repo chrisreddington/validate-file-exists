@@ -6,8 +6,8 @@ author: 'chrisreddington'
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: 'heart'
-  color: 'red'
+  icon: 'file'
+  color: 'yellow'
 
 # Define your inputs here.
 inputs:
