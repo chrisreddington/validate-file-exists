@@ -1,7 +1,7 @@
-name: 'File exists validator'
+name: 'Validate file exists'
 description:
-  'This action validates the existence of a file when provided a comma separated
-  list of files'
+  'This GitHub Action validates the existence of a list of files when 
+  provided a comma separated list.'
 author: 'chrisreddington'
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
