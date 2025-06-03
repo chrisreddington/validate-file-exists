@@ -1,6 +1,6 @@
 {
   "name": "GitHub Actions (TypeScript)",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:20",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
   "postCreateCommand": "npm install",
   "customizations": {
     "codespaces": {
@@ -40,7 +40,7 @@
   },
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers-contrib/features/prettier:1": {}
+    "ghcr.io/devcontainers-extra/features/prettier:1": {}
   },
   "tasks": {
     "build": "npm run bundle",
