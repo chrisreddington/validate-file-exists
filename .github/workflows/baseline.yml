@@ -17,4 +17,4 @@ jobs:
     with:
       required-features:
         'ghcr.io/devcontainers/features/github-cli:1,
-        ghcr.io/devcontainers-contrib/features/prettier:1'
+        ghcr.io/devcontainers-extra/features/prettier:1'
