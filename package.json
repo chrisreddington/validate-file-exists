@@ -75,7 +75,7 @@
     "@github/local-action": "^3.2.1",
     "@jest/globals": "^29.7.0",
     "@types/jest": "^30.0.0",
-    "@types/node": "^22.15.30",
+    "@types/node": "^24.0.3",
     "@typescript-eslint/eslint-plugin": "^8.34.0",
     "@typescript-eslint/parser": "^8.31.1",
     "@vercel/ncc": "^0.38.3",
