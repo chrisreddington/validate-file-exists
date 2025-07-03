@@ -10,7 +10,25 @@ export class FileValidator {
    * @returns Promise<FileValidationResult>
    */
   async validateFiles(files: string): Promise<FileValidationResult> {
-    const fileList = files.split(',').map(f => f.trim())
+    // Validate input is not empty or whitespace-only
+    if (!files || files.trim().length === 0) {
+      throw new Error(
+        'Input cannot be empty. Please provide a comma-separated list of files to validate.'
+      )
+    }
+
+    const fileList = files
+      .split(',')
+      .map(f => f.trim())
+      .filter(f => f.length > 0)
+
+    // Validate that we have actual files after splitting and trimming
+    if (fileList.length === 0) {
+      throw new Error(
+        'No valid files found in input. Please provide a comma-separated list of file names.'
+      )
+    }
+
     const missingFiles: string[] = []
 
     for (const file of fileList) {

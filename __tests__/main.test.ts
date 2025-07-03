@@ -57,4 +57,44 @@ describe('GitHub Action Integration', () => {
       'The following files do not exist: missing.txt'
     )
   })
+
+  /**
+   * Test case: Verifies that validation errors are properly handled
+   */
+  it('fails when FileValidator throws validation error for empty input', async () => {
+    mockGetInput.mockReturnValue('')
+    const mockValidator = jest.mocked(FileValidator)
+    mockValidator.prototype.validateFiles.mockRejectedValue(
+      new Error(
+        'Input cannot be empty. Please provide a comma-separated list of files to validate.'
+      )
+    )
+
+    await main.run()
+
+    expect(mockSetFailed).toHaveBeenCalledWith(
+      'Input cannot be empty. Please provide a comma-separated list of files to validate.'
+    )
+    expect(mockSetOutput).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Test case: Verifies that validation errors are properly handled for invalid input
+   */
+  it('fails when FileValidator throws validation error for invalid input', async () => {
+    mockGetInput.mockReturnValue(',,')
+    const mockValidator = jest.mocked(FileValidator)
+    mockValidator.prototype.validateFiles.mockRejectedValue(
+      new Error(
+        'No valid files found in input. Please provide a comma-separated list of file names.'
+      )
+    )
+
+    await main.run()
+
+    expect(mockSetFailed).toHaveBeenCalledWith(
+      'No valid files found in input. Please provide a comma-separated list of file names.'
+    )
+    expect(mockSetOutput).not.toHaveBeenCalled()
+  })
 })

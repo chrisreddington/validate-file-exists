@@ -1,27 +1,29 @@
 {
-  "name": "typescript-action",
-  "description": "GitHub Actions TypeScript template",
-  "version": "0.0.0",
-  "author": "",
+  "name": "validate-file-exists-action",
+  "description": "GitHub Action that validates whether specified files exist in your repository",
+  "version": "0.0.7",
+  "author": "chrisreddington",
   "private": true,
-  "homepage": "https://github.com/actions/typescript-action",
+  "homepage": "https://github.com/chrisreddington/validate-file-exists",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/actions/typescript-action.git"
+    "url": "git+https://github.com/chrisreddington/validate-file-exists.git"
   },
   "bugs": {
-    "url": "https://github.com/actions/typescript-action/issues"
+    "url": "https://github.com/chrisreddington/validate-file-exists/issues"
   },
   "keywords": [
-    "actions",
-    "node",
-    "setup"
+    "github-actions",
+    "file-validation",
+    "ci-cd",
+    "file-exists",
+    "workflow"
   ],
   "exports": {
     ".": "./dist/index.js"
   },
   "engines": {
-    "node": ">=21"
+    "node": ">=20"
   },
   "scripts": {
     "bundle": "npm run format:write && npm run package",
