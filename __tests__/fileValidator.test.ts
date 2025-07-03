@@ -61,4 +61,72 @@ describe('FileValidator', () => {
     expect(result.exists).toBe(false)
     expect(result.missingFiles).toEqual(['missing.txt'])
   })
+
+  /**
+   * Test case: Verifies that empty input throws appropriate error
+   */
+  it('should throw error for empty input', async () => {
+    await expect(fileValidator.validateFiles('')).rejects.toThrow(
+      'Input cannot be empty. Please provide a comma-separated list of files to validate.'
+    )
+  })
+
+  /**
+   * Test case: Verifies that whitespace-only input throws appropriate error
+   */
+  it('should throw error for whitespace-only input', async () => {
+    await expect(fileValidator.validateFiles('   ')).rejects.toThrow(
+      'Input cannot be empty. Please provide a comma-separated list of files to validate.'
+    )
+  })
+
+  /**
+   * Test case: Verifies that input with only commas throws appropriate error
+   */
+  it('should throw error for input with only commas', async () => {
+    await expect(fileValidator.validateFiles(',,,')).rejects.toThrow(
+      'No valid files found in input. Please provide a comma-separated list of file names.'
+    )
+  })
+
+  /**
+   * Test case: Verifies that input with commas and whitespace throws appropriate error
+   */
+  it('should throw error for input with only commas and whitespace', async () => {
+    await expect(fileValidator.validateFiles(' , , ')).rejects.toThrow(
+      'No valid files found in input. Please provide a comma-separated list of file names.'
+    )
+  })
+
+  /**
+   * Test case: Verifies that files with extra whitespace are handled correctly
+   */
+  it('should handle files with extra whitespace', async () => {
+    jest.spyOn(fs, 'access').mockResolvedValue(undefined)
+
+    const result = await fileValidator.validateFiles(' file1.txt , file2.txt ')
+
+    expect(result.exists).toBe(true)
+    expect(result.missingFiles).toHaveLength(0)
+    expect(mockDebug).toHaveBeenCalledWith('File exists: file1.txt')
+    expect(mockDebug).toHaveBeenCalledWith('File exists: file2.txt')
+  })
+
+  /**
+   * Test case: Verifies that mixed valid and empty entries are handled correctly
+   */
+  it('should filter out empty entries from comma-separated list', async () => {
+    jest.spyOn(fs, 'access').mockResolvedValue(undefined)
+
+    const result = await fileValidator.validateFiles(
+      'file1.txt,,file2.txt, ,file3.txt'
+    )
+
+    expect(result.exists).toBe(true)
+    expect(result.missingFiles).toHaveLength(0)
+    expect(mockDebug).toHaveBeenCalledWith('File exists: file1.txt')
+    expect(mockDebug).toHaveBeenCalledWith('File exists: file2.txt')
+    expect(mockDebug).toHaveBeenCalledWith('File exists: file3.txt')
+    expect(mockDebug).toHaveBeenCalledTimes(3) // Should only call for valid files
+  })
 })

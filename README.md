@@ -33,7 +33,7 @@ steps:
   - name: Validate configuration files
     uses: chrisreddington/validate-file-exists@v0.0.1
     with:
-      files: README.md
+      required-files: README.md
 ```
 
 ### Multiple Files Example
@@ -44,7 +44,26 @@ steps:
   - name: Validate configuration files
     uses: chrisreddington/validate-file-exists@v0.0.1
     with:
-      files: 'README.md, .github/copilot-instructions.md'
+      required-files: 'README.md, .github/copilot-instructions.md'
+```
+
+### Advanced Example with Error Handling
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - name: Validate critical files
+    id: validate
+    uses: chrisreddington/validate-file-exists@v0.0.1
+    with:
+      required-files: 'package.json, tsconfig.json, src/main.ts'
+    continue-on-error: true
+
+  - name: Handle validation failure
+    if: steps.validate.outcome == 'failure'
+    run: |
+      echo "Critical files are missing - this may affect the build"
+      exit 1
 ```
 
 ### Error Handling
@@ -58,6 +77,23 @@ Example error message:
 
 ```bash
 Error: The following files do not exist: config.json, settings.yml
+```
+
+### Input Validation
+
+The action validates input parameters and provides clear error messages for
+common issues:
+
+- **Empty input**: Throws error if no files are specified
+- **Invalid format**: Handles cases with only commas or whitespace
+- **File filtering**: Automatically filters out empty entries from
+  comma-separated lists
+
+Example validation errors:
+
+```bash
+Error: Input cannot be empty. Please provide a comma-separated list of files to validate.
+Error: No valid files found in input. Please provide a comma-separated list of file names.
 ```
 
 ## Contributing
