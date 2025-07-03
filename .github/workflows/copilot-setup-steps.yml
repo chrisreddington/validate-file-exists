@@ -11,6 +11,9 @@ on:
     paths:
       - .github/workflows/copilot-setup-steps.yml
 
+# Set top-level permissions to none, then grant specific permissions at job level
+permissions: {}
+
 jobs:
   # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
   copilot-setup-steps:

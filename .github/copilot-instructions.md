@@ -1,3 +1,5 @@
+# Validate File Exists Action
+
 This is a TypeScript-based GitHub Action that validates whether specified files
 exist in a repository. It takes a comma-separated list of files and validates
 their existence, failing the workflow if any files are missing. Please follow
@@ -36,12 +38,12 @@ these guidelines when contributing:
 ## Key Guidelines
 
 1. Follow TypeScript strict mode and best practices
-2. Use clear, descriptive variable and function names
-3. Add TSDoc comments for all public methods and classes
-4. Write comprehensive unit tests using Jest for all new functionality
-5. Keep functions focused and manageable (generally under 50 lines)
-6. Use consistent error handling with @actions/core.setFailed()
-7. Validate inputs and provide meaningful error messages
-8. Use @actions/core for all GitHub Actions integrations (inputs, outputs,
+1. Use clear, descriptive variable and function names
+1. Add TSDoc comments for all public methods and classes
+1. Write comprehensive unit tests using Jest for all new functionality
+1. Keep functions focused and manageable (generally under 50 lines)
+1. Use consistent error handling with @actions/core.setFailed()
+1. Validate inputs and provide meaningful error messages
+1. Use @actions/core for all GitHub Actions integrations (inputs, outputs,
    logging)
-9. Maintain backwards compatibility for action inputs/outputs
+1. Maintain backwards compatibility for action inputs/outputs
