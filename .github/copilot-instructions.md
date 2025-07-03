@@ -1,14 +1,47 @@
-# Core Requirements
+This is a TypeScript-based GitHub Action that validates whether specified files
+exist in a repository. It takes a comma-separated list of files and validates
+their existence, failing the workflow if any files are missing. Please follow
+these guidelines when contributing:
 
-- The end goal is to create a custom GitHub Action which validates whether a
-  file exists.
+## Code Standards
 
-## Code Quality Requirements
+### Required Before Each Commit
 
-- Follow standard TypeScript conventions and best practices
-- Use clear, descriptive variable and function names
-- Add comments to explain complex logic or non-obvious implementations
-- Include TSDoc comments throughout the code.
-- Write unit tests for core functionality
-- Keep functions focused and manageable (generally under 50 lines)
-- Use error handling patterns consistently
+- Run `npm run format:write` to ensure consistent code formatting with Prettier
+- Run `npm run lint` to check for ESLint violations
+- Run `npm run test` to ensure all tests pass
+- Run `npm run local-action` to test the action locally with a `.env` file
+
+### Development Flow
+
+- Build: `npm run package` (compiles TypeScript and bundles with ncc)
+- Test: `npm run test` or `npm run ci-test`
+- Coverage: `npm run coverage` (generates coverage badge)
+- Full check: `npm run all` (format, lint, test, coverage, package)
+- Local testing: `npm run local-action` (test action locally with .env file)
+
+## Repository Structure
+
+- `src/`: Core TypeScript source code
+  - `main.ts`: Main entry point and action orchestration
+  - `fileValidator.ts`: Core file validation logic
+  - `index.ts`: Action entrypoint that calls run()
+  - `types.ts`: TypeScript type definitions
+- `__tests__/`: Jest unit tests for all source files
+- `dist/`: Compiled and bundled JavaScript output (generated)
+- `action.yml`: GitHub Action metadata and interface definition
+- `script/`: Release automation scripts
+- `badges/`: Generated coverage and status badges
+
+## Key Guidelines
+
+1. Follow TypeScript strict mode and best practices
+2. Use clear, descriptive variable and function names
+3. Add TSDoc comments for all public methods and classes
+4. Write comprehensive unit tests using Jest for all new functionality
+5. Keep functions focused and manageable (generally under 50 lines)
+6. Use consistent error handling with @actions/core.setFailed()
+7. Validate inputs and provide meaningful error messages
+8. Use @actions/core for all GitHub Actions integrations (inputs, outputs,
+   logging)
+9. Maintain backwards compatibility for action inputs/outputs
