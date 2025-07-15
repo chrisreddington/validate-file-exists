@@ -74,7 +74,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "^9.31.0",
-    "@github/local-action": "^4.0.0",
+    "@github/local-action": "^5.0.0",
     "@jest/globals": "^30.0.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.13",
