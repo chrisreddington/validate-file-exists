@@ -31,7 +31,7 @@ your workflow, which is useful for validation steps or pre-deployment checks.
 steps:
   - uses: actions/checkout@v4
   - name: Validate configuration files
-    uses: chrisreddington/validate-file-exists@v0.0.1
+    uses: chrisreddington/validate-file-exists@v0.0.8
     with:
       required-files: README.md
 ```
@@ -42,7 +42,7 @@ steps:
 steps:
   - uses: actions/checkout@v4
   - name: Validate configuration files
-    uses: chrisreddington/validate-file-exists@v0.0.1
+    uses: chrisreddington/validate-file-exists@v0.0.8
     with:
       required-files: 'README.md, .github/copilot-instructions.md'
 ```
@@ -54,7 +54,7 @@ steps:
   - uses: actions/checkout@v4
   - name: Validate critical files
     id: validate
-    uses: chrisreddington/validate-file-exists@v0.0.1
+    uses: chrisreddington/validate-file-exists@v0.0.8
     with:
       required-files: 'package.json, tsconfig.json, src/main.ts'
     continue-on-error: true

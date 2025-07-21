@@ -1,7 +1,7 @@
 {
   "name": "validate-file-exists-action",
   "description": "GitHub Action that validates whether specified files exist in your repository",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "author": "chrisreddington",
   "private": true,
   "homepage": "https://github.com/chrisreddington/validate-file-exists",
