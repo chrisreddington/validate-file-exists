@@ -53,3 +53,4 @@ jobs:
           VALIDATE_JSCPD: false
           VALIDATE_TYPESCRIPT_STANDARD: false
           VALIDATE_TYPESCRIPT_ES: false # handled in CI, due to current lack of support for ESLint 9.
+          CHECKOV_FILE_NAME: .checkov.yml
