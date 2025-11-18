@@ -1,0 +1,8 @@
+---
+# Checkov configuration file
+# Checkov ignores FILTER_REGEX_EXCLUDE from super-linter
+# Use skip-path to exclude directories from scanning
+
+skip-path:
+  - node_modules/**/*
+  - dist/**/*
