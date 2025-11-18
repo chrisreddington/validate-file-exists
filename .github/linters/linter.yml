@@ -44,6 +44,7 @@ jobs:
           DEFAULT_BRANCH: main
           FILTER_REGEX_EXCLUDE: dist/**/*|node_modules/**/*
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LINTER_RULES_PATH: .github/linters
           TYPESCRIPT_ES_CONFIG_FILE: eslint.config.mjs
           VALIDATE_ALL_CODEBASE: true
           VALIDATE_BIOME_FORMAT: false

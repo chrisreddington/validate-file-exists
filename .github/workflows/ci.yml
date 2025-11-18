@@ -20,6 +20,8 @@ jobs:
       - name: Checkout
         id: checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         id: setup-node
@@ -52,6 +54,8 @@ jobs:
       - name: Checkout
         id: checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Test Local Action
         id: test-action
@@ -61,4 +65,6 @@ jobs:
 
       - name: Print Output
         id: output
-        run: echo "${{ steps.test-action.outputs.exists }}"
+        env:
+          OUTPUT_EXISTS: ${{ steps.test-action.outputs.exists }}
+        run: echo "$OUTPUT_EXISTS"
