@@ -24,6 +24,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         id: setup-node
@@ -38,13 +39,15 @@ jobs:
 
       - name: Lint Codebase
         id: super-linter
-        uses: super-linter/super-linter/slim@v8
+        uses: super-linter/super-linter/slim@f6d06a003575dde14f917e642302cf1251f28f4a # v8
         env:
           DEFAULT_BRANCH: main
           FILTER_REGEX_EXCLUDE: dist/**/*
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TYPESCRIPT_ES_CONFIG_FILE: eslint.config.mjs
           VALIDATE_ALL_CODEBASE: true
+          VALIDATE_BIOME_FORMAT: false
+          VALIDATE_BIOME_LINT: false
           VALIDATE_JAVASCRIPT_STANDARD: false
           VALIDATE_JSCPD: false
           VALIDATE_TYPESCRIPT_STANDARD: false
