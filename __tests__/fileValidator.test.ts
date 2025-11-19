@@ -2,11 +2,12 @@ import * as core from '@actions/core'
 import * as fs from 'fs/promises'
 import { PathLike } from 'fs'
 import { FileValidator } from '../src/fileValidator'
+import { vi, describe, it, expect, beforeEach, type MockInstance } from 'vitest'
 
 /**
  * Mock the file system promises module for controlled file existence testing
  */
-jest.mock('fs/promises')
+vi.mock('fs/promises')
 
 /**
  * @interface ValidateFilesResult
@@ -14,7 +15,7 @@ jest.mock('fs/promises')
  * @property {string[]} missingFiles - Array of files that don't exist
  */
 
-let mockDebug: jest.SpiedFunction<typeof core.debug>
+let mockDebug: MockInstance<typeof core.debug>
 
 /**
  * Test suite for the FileValidator class
@@ -24,8 +25,8 @@ describe('FileValidator', () => {
   let fileValidator: FileValidator
 
   beforeEach(() => {
-    jest.clearAllMocks()
-    mockDebug = jest.spyOn(core, 'debug').mockImplementation(() => {})
+    vi.clearAllMocks()
+    mockDebug = vi.spyOn(core, 'debug').mockImplementation(() => {})
     fileValidator = new FileValidator()
   })
 
@@ -34,7 +35,7 @@ describe('FileValidator', () => {
    */
   it('should return success when all files exist', async () => {
     // Mock fs.access to simulate all files existing
-    jest.spyOn(fs, 'access').mockResolvedValue(undefined)
+    vi.spyOn(fs, 'access').mockResolvedValue(undefined)
 
     const result = await fileValidator.validateFiles('file1.txt,file2.txt')
 
@@ -49,7 +50,7 @@ describe('FileValidator', () => {
    */
   it('should detect missing files', async () => {
     // Mock fs.access to simulate specific file not existing
-    jest.spyOn(fs, 'access').mockImplementation(async (path: PathLike) => {
+    vi.spyOn(fs, 'access').mockImplementation(async (path: PathLike) => {
       if (path.toString().includes('missing.txt')) {
         throw new Error('ENOENT: File not found')
       }
@@ -102,7 +103,7 @@ describe('FileValidator', () => {
    * Test case: Verifies that files with extra whitespace are handled correctly
    */
   it('should handle files with extra whitespace', async () => {
-    jest.spyOn(fs, 'access').mockResolvedValue(undefined)
+    vi.spyOn(fs, 'access').mockResolvedValue(undefined)
 
     const result = await fileValidator.validateFiles(' file1.txt , file2.txt ')
 
@@ -116,7 +117,7 @@ describe('FileValidator', () => {
    * Test case: Verifies that mixed valid and empty entries are handled correctly
    */
   it('should filter out empty entries from comma-separated list', async () => {
-    jest.spyOn(fs, 'access').mockResolvedValue(undefined)
+    vi.spyOn(fs, 'access').mockResolvedValue(undefined)
 
     const result = await fileValidator.validateFiles(
       'file1.txt,,file2.txt, ,file3.txt'
