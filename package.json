@@ -37,7 +37,7 @@
     "package:watch": "npm run package -- --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "all": "npm run format:write && npm run lint && npm run test && npm run coverage && npm run package"
+    "all": "npm run format:write && npm run lint && npm run test -- --coverage && npm run coverage && npm run package"
   },
   "license": "MIT",
   "dependencies": {
