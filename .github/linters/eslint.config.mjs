@@ -32,9 +32,9 @@ export default [
   },
   ...compat.extends(
     'eslint:recommended',
-    'plugin:@typescript-eslint/recommended-type-checked',
-    'plugin:vitest/recommended'
+    'plugin:@typescript-eslint/recommended-type-checked'
   ),
+  vitest.configs.recommended,
   {
     plugins: {
       vitest,
