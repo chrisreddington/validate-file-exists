@@ -1,26 +1,27 @@
 import * as core from '@actions/core'
 import { FileValidator } from '../src/fileValidator'
 import * as main from '../src/main'
+import { vi, describe, it, expect, beforeEach, type MockInstance } from 'vitest'
 
 /**
  * Mock implementation of the FileValidator class
  */
-jest.mock('../src/fileValidator')
+vi.mock('../src/fileValidator')
 
 // Mock GitHub Actions core function types
-let mockGetInput: jest.SpiedFunction<typeof core.getInput>
-let mockSetFailed: jest.SpiedFunction<typeof core.setFailed>
-let mockSetOutput: jest.SpiedFunction<typeof core.setOutput>
+let mockGetInput: MockInstance<typeof core.getInput>
+let mockSetFailed: MockInstance<typeof core.setFailed>
+let mockSetOutput: MockInstance<typeof core.setOutput>
 
 /**
  * Test suite for the GitHub Action's main integration functionality
  */
 describe('GitHub Action Integration', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
-    mockGetInput = jest.spyOn(core, 'getInput').mockImplementation(() => '')
-    mockSetFailed = jest.spyOn(core, 'setFailed').mockImplementation(() => {})
-    mockSetOutput = jest.spyOn(core, 'setOutput').mockImplementation(() => {})
+    vi.clearAllMocks()
+    mockGetInput = vi.spyOn(core, 'getInput').mockImplementation(() => '')
+    mockSetFailed = vi.spyOn(core, 'setFailed').mockImplementation(() => {})
+    mockSetOutput = vi.spyOn(core, 'setOutput').mockImplementation(() => {})
   })
 
   /**
@@ -28,7 +29,7 @@ describe('GitHub Action Integration', () => {
    */
   it('succeeds when FileValidator reports all files exist', async () => {
     mockGetInput.mockReturnValue('file1.txt,file2.txt')
-    const mockValidator = jest.mocked(FileValidator)
+    const mockValidator = vi.mocked(FileValidator)
     mockValidator.prototype.validateFiles.mockResolvedValue({
       exists: true,
       missingFiles: []
@@ -45,7 +46,7 @@ describe('GitHub Action Integration', () => {
    */
   it('fails when FileValidator reports missing files', async () => {
     mockGetInput.mockReturnValue('file1.txt,missing.txt')
-    const mockValidator = jest.mocked(FileValidator)
+    const mockValidator = vi.mocked(FileValidator)
     mockValidator.prototype.validateFiles.mockResolvedValue({
       exists: false,
       missingFiles: ['missing.txt']
@@ -63,7 +64,7 @@ describe('GitHub Action Integration', () => {
    */
   it('fails when FileValidator throws validation error for empty input', async () => {
     mockGetInput.mockReturnValue('')
-    const mockValidator = jest.mocked(FileValidator)
+    const mockValidator = vi.mocked(FileValidator)
     mockValidator.prototype.validateFiles.mockRejectedValue(
       new Error(
         'Input cannot be empty. Please provide a comma-separated list of files to validate.'
@@ -83,7 +84,7 @@ describe('GitHub Action Integration', () => {
    */
   it('fails when FileValidator throws validation error for invalid input', async () => {
     mockGetInput.mockReturnValue(',,')
-    const mockValidator = jest.mocked(FileValidator)
+    const mockValidator = vi.mocked(FileValidator)
     mockValidator.prototype.validateFiles.mockRejectedValue(
       new Error(
         'No valid files found in input. Please provide a comma-separated list of file names.'

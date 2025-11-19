@@ -1,4 +1,4 @@
-import jest from 'eslint-plugin-jest'
+import vitest from 'eslint-plugin-vitest'
 import typescriptEslint from '@typescript-eslint/eslint-plugin'
 import globals from 'globals'
 import tsParser from '@typescript-eslint/parser'
@@ -33,18 +33,17 @@ export default [
   ...compat.extends(
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended-type-checked',
-    'plugin:jest/recommended'
+    'plugin:vitest/recommended'
   ),
   {
     plugins: {
-      jest,
+      vitest,
       '@typescript-eslint': typescriptEslint
     },
 
     languageOptions: {
       globals: {
         ...globals.node,
-        ...globals.jest,
         Atomics: 'readonly',
         SharedArrayBuffer: 'readonly'
       },
