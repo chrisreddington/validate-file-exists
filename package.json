@@ -52,7 +52,7 @@
     "@typescript-eslint/parser": "^8.31.1",
     "@vercel/ncc": "^0.38.4",
     "@vitest/coverage-v8": "^4.0.15",
-    "eslint": "^9.39.1",
+    "eslint": "^9.39.2",
     "eslint-plugin-jsonc": "^2.21.0",
     "eslint-plugin-prettier": "^5.5.4",
     "eslint-plugin-vitest": "^0.5.4",
