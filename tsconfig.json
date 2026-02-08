@@ -1,9 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "declaration": false,
+    "declarationMap": false,
     "target": "ES2022",
     "module": "NodeNext",
-    "rootDir": "./src",
     "moduleResolution": "NodeNext",
     "baseUrl": "./",
     "sourceMap": true,
@@ -11,9 +13,14 @@
     "noImplicitAny": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
     "strict": true,
+    "strictNullChecks": true,
     "skipLibCheck": true,
     "newLine": "lf",
+    "noUnusedLocals": true,
+    "pretty": true,
+    "resolveJsonModule": true,
     "types": ["node", "vitest/globals"]
   },
   "exclude": [
@@ -21,6 +28,7 @@
     "./node_modules",
     "./__tests__",
     "./coverage",
-    "./vitest.config.ts"
+    "./vitest.config.ts",
+    "./rollup.config.ts"
   ]
 }

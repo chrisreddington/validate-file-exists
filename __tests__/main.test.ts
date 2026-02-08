@@ -1,12 +1,12 @@
 import * as core from '@actions/core'
-import { FileValidator } from '../src/fileValidator'
-import { run } from '../src/main'
+import { FileValidator } from '../src/fileValidator.js'
+import { run } from '../src/main.js'
 import { vi, describe, it, expect, beforeEach, type MockInstance } from 'vitest'
 
 /**
  * Mock implementation of the FileValidator class
  */
-vi.mock('../src/fileValidator')
+vi.mock('../src/fileValidator.js')
 
 // Mock GitHub Actions core function types
 let mockGetInput: MockInstance<typeof core.getInput>

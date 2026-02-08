@@ -16,7 +16,7 @@ these guidelines when contributing:
 
 ### Development Flow
 
-- Build: `npm run package` (compiles TypeScript and bundles with ncc)
+- Build: `npm run package` (compiles TypeScript and bundles with Rollup)
 - Test: `npm run test` or `npm run ci-test`
 - Coverage: `npm run coverage` (generates coverage badge)
 - Full check: `npm run all` (format, lint, test, coverage, package)
@@ -29,7 +29,7 @@ these guidelines when contributing:
   - `fileValidator.ts`: Core file validation logic
   - `index.ts`: Action entrypoint that calls run()
   - `types.ts`: TypeScript type definitions
-- `__tests__/`: Jest unit tests for all source files
+- `__tests__/`: Vitest unit tests for all source files
 - `dist/`: Compiled and bundled JavaScript output (generated)
 - `action.yml`: GitHub Action metadata and interface definition
 - `script/`: Release automation scripts
@@ -40,7 +40,7 @@ these guidelines when contributing:
 1. Follow TypeScript strict mode and best practices
 1. Use clear, descriptive variable and function names
 1. Add TSDoc comments for all public methods and classes
-1. Write comprehensive unit tests using Jest for all new functionality
+1. Write comprehensive unit tests using Vitest for all new functionality
 1. Keep functions focused and manageable (generally under 50 lines)
 1. Use consistent error handling with @actions/core.setFailed()
 1. Validate inputs and provide meaningful error messages
