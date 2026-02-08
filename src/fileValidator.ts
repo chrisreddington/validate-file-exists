@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as core from '@actions/core'
-import { FileValidationResult } from './types'
+import { FileValidationResult } from './types.js'
 
 export class FileValidator {
   /**

@@ -3,6 +3,7 @@
   "description": "GitHub Action that validates whether specified files exist in your repository",
   "version": "0.0.8",
   "author": "chrisreddington",
+  "type": "module",
   "private": true,
   "homepage": "https://github.com/chrisreddington/validate-file-exists",
   "repository": {
@@ -23,7 +24,7 @@
     ".": "./dist/index.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "bundle": "npm run format:write && npm run package",
@@ -33,7 +34,7 @@
     "format:check": "npx prettier --check .",
     "lint": "npx eslint . -c ./.github/linters/eslint.config.mjs",
     "local-action": "npx local-action . src/main.ts .env",
-    "package": "npx ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "package": "npx rimraf ./dist && npx rollup --config rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "package:watch": "npm run package -- --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -46,11 +47,13 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.2",
-    "@github/local-action": "^6.0.2",
-    "@types/node": "^25.2.0",
+    "@github/local-action": "^7.0.0",
+    "@types/node": "^24.10.1",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.31.1",
-    "@vercel/ncc": "^0.38.4",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-typescript": "^12.3.0",
     "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^9.39.2",
     "eslint-plugin-jsonc": "^2.21.0",
@@ -60,6 +63,7 @@
     "make-coverage-badge": "^1.2.0",
     "prettier": "^3.8.1",
     "prettier-eslint": "^16.4.2",
+    "rollup": "^4.54.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.10"
   },

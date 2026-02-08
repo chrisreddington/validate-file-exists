@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { FileValidator } from './fileValidator'
+import { FileValidator } from './fileValidator.js'
 
 /**
  * The main function for the action.

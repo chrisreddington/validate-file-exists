@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import * as fs from 'fs/promises'
 import { PathLike } from 'fs'
-import { FileValidator } from '../src/fileValidator'
+import { FileValidator } from '../src/fileValidator.js'
 import { vi, describe, it, expect, beforeEach, type MockInstance } from 'vitest'
 
 /**

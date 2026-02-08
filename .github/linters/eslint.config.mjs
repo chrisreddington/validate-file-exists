@@ -27,7 +27,8 @@ export default [
       'dist/**',
       'coverage/**',
       'test/**',
-      '**/.github/linters/**'
+      '**/.github/linters/**',
+      'rollup.config.ts'
     ]
   },
   ...compat.extends(
