@@ -42,7 +42,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^2.0.2"
+    "@actions/core": "^3.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",

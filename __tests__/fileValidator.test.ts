@@ -2,7 +2,7 @@ import * as core from '@actions/core'
 import * as fs from 'fs/promises'
 import { PathLike } from 'fs'
 import { FileValidator } from '../src/fileValidator.js'
-import { vi, describe, it, expect, beforeEach, type MockInstance } from 'vitest'
+import { vi, describe, it, expect, beforeEach, type Mock } from 'vitest'
 
 /**
  * Mock the file system promises module for controlled file existence testing
@@ -10,12 +10,17 @@ import { vi, describe, it, expect, beforeEach, type MockInstance } from 'vitest'
 vi.mock('fs/promises')
 
 /**
+ * Mock @actions/core (ESM-only in v3, cannot use vi.spyOn)
+ */
+vi.mock('@actions/core')
+
+/**
  * @interface ValidateFilesResult
  * @property {boolean} exists - Indicates if all files exist
  * @property {string[]} missingFiles - Array of files that don't exist
  */
 
-let mockDebug: MockInstance<typeof core.debug>
+let mockDebug: Mock
 
 /**
  * Test suite for the FileValidator class
@@ -26,7 +31,7 @@ describe('FileValidator', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockDebug = vi.spyOn(core, 'debug').mockImplementation(() => {})
+    mockDebug = vi.mocked(core.debug)
     fileValidator = new FileValidator()
   })
 

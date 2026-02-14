@@ -92,7 +92,8 @@ common issues:
 Example validation errors:
 
 ```bash
-Error: Input cannot be empty. Please provide a comma-separated list of files to validate.
+Error: Input cannot be empty. Please provide a
+comma-separated list of files to validate.
 Error: No valid files found in input. Please provide a comma-separated list of
 file names.
 ```
