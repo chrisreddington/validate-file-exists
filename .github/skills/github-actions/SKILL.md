@@ -1,11 +1,17 @@
 ---
 name: github-actions
-description: 'GitHub Actions workflow development with security best practices and CI/CD patterns. Use when creating or modifying GitHub Actions workflows, implementing SHA pinning, securing CI pipelines, setting up automated testing, or following GitHub Actions security hardening guidelines. Covers permissions, caching, conditional execution, and verification checklists.'
+description:
+  'GitHub Actions workflow development with security best practices and CI/CD
+  patterns. Use when creating or modifying GitHub Actions workflows,
+  implementing SHA pinning, securing CI pipelines, setting up automated testing,
+  or following GitHub Actions security hardening guidelines. Covers permissions,
+  caching, conditional execution, and verification checklists.'
 ---
 
 # GitHub Actions Workflow Development
 
-Guidelines and best practices for developing secure, efficient GitHub Actions workflows.
+Guidelines and best practices for developing secure, efficient GitHub Actions
+workflows.
 
 ## When to Use This Skill
 
@@ -20,7 +26,8 @@ Guidelines and best practices for developing secure, efficient GitHub Actions wo
 
 ### Minimal Permissions
 
-Always start with minimal permissions at the workflow level and increase per-job only when needed:
+Always start with minimal permissions at the workflow level and increase per-job
+only when needed:
 
 ```yaml
 # ✅ Minimal at workflow level
@@ -41,21 +48,25 @@ jobs:
 
 ```yaml
 # ✅ Pin to commit SHA - immutable and secure
-- uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+- uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 ```
 
 **Before submitting workflow changes:**
 
-1. **Research Latest Releases**: Use web search to find the latest stable release for each action
-2. **Get Commit SHA**: Retrieve the full 40-character commit SHA for that specific release
-3. **Include Version Comment**: Always include the version tag as a comment (e.g., `# v4.2.2`)
+1. **Research Latest Releases**: Use web search to find the latest stable
+   release for each action
+2. **Get Commit SHA**: Retrieve the full 40-character commit SHA for that
+   specific release
+3. **Include Version Comment**: Always include the version tag as a comment
+   (e.g., `# v4.2.2`)
 
 ### Environment Consistency
 
 Prefer configuration files over hardcoded versions:
 
 - Use `.node-version` or `.nvmrc` for Node.js versions
-- Reference these files in the workflow to ensure consistency between local development and CI
+- Reference these files in the workflow to ensure consistency between local
+  development and CI
 
 ```yaml
 - uses: actions/setup-node@v4
@@ -112,13 +123,13 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
-      
-      - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f  # v6.1.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version-file: '.node-version'
           cache: 'npm'
-      
+
       - run: npm ci
       - run: npm run validate:scripts
       - run: npm run test
@@ -158,7 +169,8 @@ Use setup-node's built-in caching for better performance:
 Before finalizing any workflow changes:
 
 1. **Verify Each Action's Commit SHA:**
-   - Use GitHub MCP tools or web search to find each action's latest release matching the version tag
+   - Use GitHub MCP tools or web search to find each action's latest release
+     matching the version tag
    - Retrieve the correct 40-character commit SHA for that specific release tag
    - **Do NOT assume** the SHA in comments or existing workflows is correct
    - **Do NOT skip verification** even if the SHA looks "valid"
@@ -180,15 +192,15 @@ Before finalizing any workflow changes:
 
 ## Anti-Patterns to Avoid
 
-| Anti-Pattern | Why It's Problematic | Better Approach |
-|--------------|---------------------|-----------------|
-| Using version tags (`v4`) | Tags can be moved/deleted; supply chain risk | Pin to full 40-char commit SHA |
-| Hardcoded Node versions | Drift between local and CI; maintenance burden | Use `.node-version` file reference |
-| Direct string interpolation | Script injection vulnerability | Use environment variables |
-| Workflow-level `write` perms | Excessive access if job compromised | Minimal perms at workflow, increase per-job |
-| Assuming SHA validity | Outdated SHAs break workflows | Verify SHA against latest release |
-| Missing SHA verification | Workflow may fail with 404 | Use GitHub MCP tools to validate |
-| Skipping YAML validation | Syntax errors break CI | Validate before committing |
+| Anti-Pattern                 | Why It's Problematic                           | Better Approach                             |
+| ---------------------------- | ---------------------------------------------- | ------------------------------------------- |
+| Using version tags (`v4`)    | Tags can be moved/deleted; supply chain risk   | Pin to full 40-char commit SHA              |
+| Hardcoded Node versions      | Drift between local and CI; maintenance burden | Use `.node-version` file reference          |
+| Direct string interpolation  | Script injection vulnerability                 | Use environment variables                   |
+| Workflow-level `write` perms | Excessive access if job compromised            | Minimal perms at workflow, increase per-job |
+| Assuming SHA validity        | Outdated SHAs break workflows                  | Verify SHA against latest release           |
+| Missing SHA verification     | Workflow may fail with 404                     | Use GitHub MCP tools to validate            |
+| Skipping YAML validation     | Syntax errors break CI                         | Validate before committing                  |
 
 ## Examples
 
@@ -196,7 +208,7 @@ Before finalizing any workflow changes:
 
 ```yaml
 # ✅ Pinned to full commit SHA with version comment
-- uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+- uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 ```
 
 ### Safe Environment Variable Usage
@@ -216,7 +228,7 @@ Before finalizing any workflow changes:
 
 ```yaml
 # ✅ Consistent Node version between local and CI
-- uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f  # v6.1.0
+- uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
   with:
     node-version-file: '.node-version'
     cache: 'npm'
@@ -224,18 +236,23 @@ Before finalizing any workflow changes:
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Workflow not triggering | Check event triggers and branch filters |
-| Permission denied | Review and increase job-level permissions |
-| Action not found | Verify commit SHA exists and is valid |
-| Cache not working | Ensure cache key is deterministic and paths are correct |
-| Secret not available | Check repository/organization secret configuration |
+| Issue                   | Solution                                                |
+| ----------------------- | ------------------------------------------------------- |
+| Workflow not triggering | Check event triggers and branch filters                 |
+| Permission denied       | Review and increase job-level permissions               |
+| Action not found        | Verify commit SHA exists and is valid                   |
+| Cache not working       | Ensure cache key is deterministic and paths are correct |
+| Secret not available    | Check repository/organization secret configuration      |
 
 ## References
 
-- [GitHub Actions Documentation](https://docs.github.com/en/actions) - Official Actions docs
-- [Security Hardening](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions) - Security best practices
-- [Workflow Syntax](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions) - YAML syntax reference
-- [actions/checkout](https://github.com/actions/checkout) - Checkout action releases
-- [actions/setup-node](https://github.com/actions/setup-node) - Node setup action releases
+- [GitHub Actions Documentation](https://docs.github.com/en/actions) - Official
+  Actions docs
+- [Security Hardening](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions) -
+  Security best practices
+- [Workflow Syntax](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions) -
+  YAML syntax reference
+- [actions/checkout](https://github.com/actions/checkout) - Checkout action
+  releases
+- [actions/setup-node](https://github.com/actions/setup-node) - Node setup
+  action releases
