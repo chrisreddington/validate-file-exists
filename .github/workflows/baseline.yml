@@ -13,7 +13,7 @@ on:
 jobs:
   validate:
     name: Validate Baseline Configuration
-    uses: chrisreddington/reusable-workflows/.github/workflows/baseline-validator.yml@main
+    uses: chrisreddington/reusable-workflows/.github/workflows/baseline-validator.yml@c5167ceec6c97ca528a74806da5033ee1db2457c # main
     with:
       required-features:
         'ghcr.io/devcontainers/features/github-cli:1,

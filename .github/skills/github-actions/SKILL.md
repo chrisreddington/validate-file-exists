@@ -55,9 +55,9 @@ jobs:
 
 1. **Research Latest Releases**: Use web search to find the latest stable
    release for each action
-2. **Get Commit SHA**: Retrieve the full 40-character commit SHA for that
+1. **Get Commit SHA**: Retrieve the full 40-character commit SHA for that
    specific release
-3. **Include Version Comment**: Always include the version tag as a comment
+1. **Include Version Comment**: Always include the version tag as a comment
    (e.g., `# v4.2.2`)
 
 ### Environment Consistency
@@ -175,24 +175,24 @@ Before finalizing any workflow changes:
    - **Do NOT assume** the SHA in comments or existing workflows is correct
    - **Do NOT skip verification** even if the SHA looks "valid"
 
-2. **Validate Action Existence:**
+1. **Validate Action Existence:**
    - After updating SHAs, confirm the action exists at that commit
    - If fetch fails or returns 404, the SHA is invalid
 
-3. **Test YAML Syntax:**
+1. **Test YAML Syntax:**
    - Verify the workflow has no syntax errors
    - Validate against GitHub's YAML schema
 
 ## Before Making Changes
 
 1. Check existing `.github/workflows/` for patterns
-2. Check `.github/dependabot.yml` exists before suggesting dependency automation
-3. Verify action versions via releases pages
-4. Consider CI time and complexity tradeoffs
+1. Check `.github/dependabot.yml` exists before suggesting dependency automation
+1. Verify action versions via releases pages
+1. Consider CI time and complexity trade-offs
 
-## Anti-Patterns to Avoid
+## Antipatterns to Avoid
 
-| Anti-Pattern                 | Why It's Problematic                           | Better Approach                             |
+| Antipattern                  | Why It's Problematic                           | Better Approach                             |
 | ---------------------------- | ---------------------------------------------- | ------------------------------------------- |
 | Using version tags (`v4`)    | Tags can be moved/deleted; supply chain risk   | Pin to full 40-char commit SHA              |
 | Hardcoded Node versions      | Drift between local and CI; maintenance burden | Use `.node-version` file reference          |
@@ -248,10 +248,15 @@ Before finalizing any workflow changes:
 
 - [GitHub Actions Documentation](https://docs.github.com/en/actions) - Official
   Actions docs
-- [Security Hardening](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions) -
+- [Security Hardening][sec-hardening] -
   Security best practices
-- [Workflow Syntax](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions) -
+- [Workflow Syntax][wf-syntax] -
   YAML syntax reference
+
+[sec-hardening]:
+  https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
+[wf-syntax]:
+  https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions
 - [actions/checkout](https://github.com/actions/checkout) - Checkout action
   releases
 - [actions/setup-node](https://github.com/actions/setup-node) - Node setup
