@@ -1,17 +1,22 @@
 import * as core from '@actions/core'
 import { FileValidator } from '../src/fileValidator.js'
 import { run } from '../src/main.js'
-import { vi, describe, it, expect, beforeEach, type MockInstance } from 'vitest'
+import { vi, describe, it, expect, beforeEach, type Mock } from 'vitest'
 
 /**
  * Mock implementation of the FileValidator class
  */
 vi.mock('../src/fileValidator.js')
 
+/**
+ * Mock @actions/core (ESM-only in v3, cannot use vi.spyOn)
+ */
+vi.mock('@actions/core')
+
 // Mock GitHub Actions core function types
-let mockGetInput: MockInstance<typeof core.getInput>
-let mockSetFailed: MockInstance<typeof core.setFailed>
-let mockSetOutput: MockInstance<typeof core.setOutput>
+let mockGetInput: Mock
+let mockSetFailed: Mock
+let mockSetOutput: Mock
 
 /**
  * Test suite for the GitHub Action's main integration functionality
@@ -19,9 +24,9 @@ let mockSetOutput: MockInstance<typeof core.setOutput>
 describe('GitHub Action Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetInput = vi.spyOn(core, 'getInput').mockImplementation(() => '')
-    mockSetFailed = vi.spyOn(core, 'setFailed').mockImplementation(() => {})
-    mockSetOutput = vi.spyOn(core, 'setOutput').mockImplementation(() => {})
+    mockGetInput = vi.mocked(core.getInput).mockImplementation(() => '')
+    mockSetFailed = vi.mocked(core.setFailed).mockImplementation(() => {})
+    mockSetOutput = vi.mocked(core.setOutput).mockImplementation(() => {})
   })
 
   /**
