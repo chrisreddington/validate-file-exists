@@ -248,15 +248,14 @@ Before finalizing any workflow changes:
 
 - [GitHub Actions Documentation](https://docs.github.com/en/actions) - Official
   Actions docs
-- [Security Hardening][sec-hardening] -
-  Security best practices
-- [Workflow Syntax][wf-syntax] -
-  YAML syntax reference
+- [Security Hardening][sec-hardening] - Security best practices
+- [Workflow Syntax][wf-syntax] - YAML syntax reference
 
 [sec-hardening]:
   https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
 [wf-syntax]:
   https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions
+
 - [actions/checkout](https://github.com/actions/checkout) - Checkout action
   releases
 - [actions/setup-node](https://github.com/actions/setup-node) - Node setup
