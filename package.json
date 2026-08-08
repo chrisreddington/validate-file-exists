@@ -48,22 +48,22 @@
     "@eslint/eslintrc": "^3.3.6",
     "@eslint/js": "^10.0.1",
     "@github/local-action": "^7.0.0",
-    "@types/node": "^26.1.1",
-    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@types/node": "^26.1.2",
+    "@typescript-eslint/eslint-plugin": "^8.66.0",
     "@typescript-eslint/parser": "^8.56.0",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-typescript": "^12.3.0",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
-    "eslint-plugin-jsonc": "^3.3.0",
+    "eslint-plugin-jsonc": "^3.4.1",
     "eslint-plugin-prettier": "^5.5.6",
-    "@vitest/eslint-plugin": "^1.6.24",
-    "globals": "^17.8.0",
+    "@vitest/eslint-plugin": "^1.6.26",
+    "globals": "^17.9.0",
     "make-coverage-badge": "^1.2.0",
     "prettier": "^3.9.6",
     "prettier-eslint": "^17.1.1",
-    "rollup": "^4.62.3",
+    "rollup": "^4.62.4",
     "typescript": "^6.0.3",
     "vitest": "^4.0.10"
   },
@@ -72,6 +72,6 @@
     "minimatch@3": {
       "brace-expansion": "^1.1.13"
     },
-    "undici": "^7.28.0"
+    "undici": "^7.29.0"
   }
 }
