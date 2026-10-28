@@ -19,8 +19,8 @@ import require$$5 from 'node:querystring';
 import require$$0 from 'node:events';
 import require$$0$3 from 'node:diagnostics_channel';
 import require$$3 from 'node:util';
-import require$$4 from 'node:tls';
 import require$$0$4 from 'node:buffer';
+import require$$4 from 'node:tls';
 import require$$3$1 from 'node:zlib';
 import require$$5$1 from 'node:perf_hooks';
 import require$$8 from 'node:util/types';
@@ -486,6 +486,7 @@ function requireSymbols () {
 	  kDestroy: Symbol('destroy'),
 	  kDispatch: Symbol('dispatch'),
 	  kUrl: Symbol('url'),
+	  kRedirectCacheControl: Symbol('redirect cache control'),
 	  kWriting: Symbol('writing'),
 	  kResuming: Symbol('resuming'),
 	  kQueue: Symbol('queue'),
@@ -3378,11 +3379,32 @@ function requireRequest$1 () {
 	    }
 	  }
 
-	  onUpgrade (statusCode, headers, socket) {
+	  /**
+	   * @param {number} statusCode
+	   * @param {Buffer[]|string[]} headers
+	   * @param {import('node:stream').Duplex} socket
+	   * @param {string} [statusText]
+	   */
+	  onUpgrade (statusCode, headers, socket, statusText = '') {
+	    this.onFinally();
+
 	    assert(!this.aborted);
 	    assert(!this.completed);
 
-	    return this[kHandler].onUpgrade(statusCode, headers, socket)
+	    if (channels.headers.hasSubscribers) {
+	      channels.headers.publish({ request: this, response: { statusCode, headers, statusText } });
+	    }
+
+	    const result = this[kHandler].onUpgrade(statusCode, headers, socket);
+
+	    if (!this.aborted) {
+	      this.completed = true;
+	      if (channels.trailers.hasSubscribers) {
+	        channels.trailers.publish({ request: this, trailers: [] });
+	      }
+	    }
+
+	    return result
 	  }
 
 	  onComplete (trailers) {
@@ -3831,6 +3853,7 @@ function requireDispatcherBase () {
 	if (hasRequiredDispatcherBase) return dispatcherBase;
 	hasRequiredDispatcherBase = 1;
 
+	const buffer = require$$0$4;
 	const Dispatcher = requireDispatcher();
 	const UnwrapHandler = requireUnwrapHandler();
 	const {
@@ -3843,6 +3866,7 @@ function requireDispatcherBase () {
 	const kOnDestroyed = Symbol('onDestroyed');
 	const kOnClosed = Symbol('onClosed');
 	const kWebSocketOptions = Symbol('webSocketOptions');
+	const kEventSourceOptions = Symbol('eventSourceOptions');
 
 	class DispatcherBase extends Dispatcher {
 	  /** @type {boolean} */
@@ -3863,6 +3887,7 @@ function requireDispatcherBase () {
 	  constructor (opts) {
 	    super();
 	    this[kWebSocketOptions] = opts?.webSocket ?? {};
+	    this[kEventSourceOptions] = opts?.eventSource ?? {};
 	  }
 
 	  /**
@@ -3872,6 +3897,15 @@ function requireDispatcherBase () {
 	    return {
 	      maxFragments: this[kWebSocketOptions].maxFragments ?? 131072,
 	      maxPayloadSize: this[kWebSocketOptions].maxPayloadSize ?? 128 * 1024 * 1024 // 128 MB default
+	    }
+	  }
+
+	  /**
+	   * @returns {import('../../types/client').Client.EventSourceOptions}
+	   */
+	  get eventSourceOptions () {
+	    return {
+	      maxEventSize: this[kEventSourceOptions].maxEventSize ?? buffer.kStringMaxLength
 	    }
 	  }
 
@@ -4064,16 +4098,22 @@ function requireConnect () {
 	    if (this._sessionCache.has(sessionKey)) {
 	      this._sessionCache.delete(sessionKey);
 	    } else if (this._sessionCache.size >= this._maxCachedSessions) {
+	      // Make room for the new session: prefer an entry whose session has
+	      // already been collected, otherwise evict the oldest one.
+	      let evicted = false;
 	      for (const [key, ref] of this._sessionCache) {
 	        if (ref.deref() === undefined) {
 	          this._sessionCache.delete(key);
-	          return
+	          evicted = true;
+	          break
 	        }
 	      }
 
-	      const oldest = this._sessionCache.keys().next();
-	      if (!oldest.done) {
-	        this._sessionCache.delete(oldest.value);
+	      if (!evicted) {
+	        const oldest = this._sessionCache.keys().next();
+	        if (!oldest.done) {
+	          this._sessionCache.delete(oldest.value);
+	        }
 	      }
 	    }
 
@@ -5083,6 +5123,19 @@ function requireInfra () {
 	}
 
 	const ASCII_WHITESPACE_REPLACE_REGEX = /[\u0009\u000A\u000C\u000D\u0020]/g; // eslint-disable-line no-control-regex
+	const nonASCIIRegex = /[^\x00-\x7F]/; // eslint-disable-line no-control-regex
+
+	/**
+	 * @param {string} str
+	 * @returns {string}
+	 *
+	 * @see https://infra.spec.whatwg.org/#ascii-lowercase
+	 */
+	function asciiLowercase (str) {
+	  return nonASCIIRegex.test(str)
+	    ? str.replace(/[A-Z]+/g, (upper) => upper.toLowerCase())
+	    : str.toLowerCase()
+	}
 
 	/**
 	 * @param {string} data
@@ -5247,6 +5300,7 @@ function requireInfra () {
 	}
 
 	infra = {
+	  asciiLowercase,
 	  collectASequenceOfCodePoints,
 	  collectASequenceOfCodePointsFast,
 	  forgivingBase64,
@@ -10029,8 +10083,14 @@ function requireClientH1 () {
 
 	  let mod;
 
-	  // We disable wasm SIMD on ppc64 as it seems to be broken on Power 9 architectures.
-	  let useWasmSIMD = process.arch !== 'ppc64';
+	  // We disable wasm SIMD on older versions of Node.js on ppc64 that are broken on Power >=9 architectures.
+	  let useWasmSIMD = true;
+	  if (process.arch === 'ppc64') {
+	    const [major, minor] = process.versions.node.split('.').map(n => parseInt(n, 10));
+	    if (major < 24 || (major === 24 && minor < 12)) {
+	      useWasmSIMD = false;
+	    }
+	  }
 	  // The Env Variable UNDICI_NO_WASM_SIMD allows explicitly overriding the default behavior
 	  if (process.env.UNDICI_NO_WASM_SIMD === '1') {
 	    useWasmSIMD = false;
@@ -10481,7 +10541,7 @@ function requireClientH1 () {
 	   * @param {Buffer} head
 	   */
 	  onUpgrade (head) {
-	    const { upgrade, client, socket, headers, statusCode } = this;
+	    const { upgrade, client, socket, headers, statusCode, statusText } = this;
 
 	    assert(upgrade);
 	    assert(client[kSocket] === socket);
@@ -10516,8 +10576,9 @@ function requireClientH1 () {
 	    client.emit('disconnect', client[kUrl], [client], new InformationalError('upgrade'));
 
 	    try {
-	      request.onUpgrade(statusCode, headers, socket);
+	      request.onUpgrade(statusCode, headers, socket, statusText);
 	    } catch (err) {
+	      util.errorRequest(client, request, err);
 	      util.destroy(socket, err);
 	    }
 
@@ -10881,8 +10942,6 @@ function requireClientH1 () {
 	}
 
 	function onHttpSocketError (err) {
-	  assert(err.code !== 'ERR_TLS_CERT_ALTNAME_INVALID');
-
 	  const parser = this[kParser];
 
 	  // On Mac OS, we get an ECONNRESET even if there is a full body to be forwarded
@@ -10972,7 +11031,7 @@ function requireClientH1 () {
 
 	function clearIdleSocketValidation (socket) {
 	  if (socket[kIdleSocketValidationTimeout]) {
-	    clearTimeout(socket[kIdleSocketValidationTimeout]);
+	    clearImmediate(socket[kIdleSocketValidationTimeout]);
 	    socket[kIdleSocketValidationTimeout] = null;
 	  }
 
@@ -10981,15 +11040,23 @@ function requireClientH1 () {
 
 	function scheduleIdleSocketValidation (client, socket) {
 	  socket[kIdleSocketValidation] = 1;
-	  socket[kIdleSocketValidationTimeout] = setTimeout(() => {
+	  // Yield to the check phase (after poll) so unsolicited bytes / FIN / RST
+	  // already pending on this idle keep-alive socket are processed before the
+	  // next request is written (GHSA-35p6-xmwp-9g52).
+	  //
+	  // setTimeout(0) pays Node's ~1ms timer floor on every sequential reuse
+	  // (#5493). setImmediate avoids that, but an *unref'd* Immediate lets poll
+	  // block for ~500ms when the event loop is otherwise idle (#5600 / #5606).
+	  // A ref'd Immediate both keeps the pending request alive and makes poll
+	  // return immediately — the hybrid those issues asked for.
+	  socket[kIdleSocketValidationTimeout] = setImmediate(() => {
 	    socket[kIdleSocketValidationTimeout] = null;
 	    socket[kIdleSocketValidation] = 2;
 
 	    if (client[kSocket] === socket && !socket.destroyed) {
 	      client[kResume]();
 	    }
-	  }, 0);
-	  socket[kIdleSocketValidationTimeout].unref?.();
+	  });
 	}
 
 	/**
@@ -11707,7 +11774,9 @@ function requireClientH2 () {
 	  RequestAbortedError,
 	  SocketError,
 	  InformationalError,
-	  InvalidArgumentError
+	  InvalidArgumentError,
+	  HeadersTimeoutError,
+	  BodyTimeoutError
 	} = requireErrors();
 	const {
 	  kUrl,
@@ -11732,6 +11801,7 @@ function requireClientH2 () {
 	  kHTTPContext,
 	  kClosed,
 	  kBodyTimeout,
+	  kHeadersTimeout,
 	  kEnableConnectProtocol,
 	  kRemoteSettings,
 	  kHTTP2Stream,
@@ -11918,7 +11988,11 @@ function requireClientH2 () {
 	  const socket = client[kSocket];
 
 	  if (socket?.destroyed === false) {
-	    if (client[kSize] === 0 || client[kMaxConcurrentStreams] === 0) {
+	    // Only let the process exit when there is genuinely nothing outstanding.
+	    // Unreffing because the peer advertised MAX_CONCURRENT_STREAMS = 0 left
+	    // queued requests with nothing holding the event loop open, so the process
+	    // could exit with status 0 while an awaited request never settled.
+	    if (client[kSize] === 0) {
 	      socket.unref();
 	      client[kHTTP2Session].unref();
 	    } else {
@@ -11985,8 +12059,6 @@ function requireClientH2 () {
 	}
 
 	function onHttp2SessionError (err) {
-	  assert(err.code !== 'ERR_TLS_CERT_ALTNAME_INVALID');
-
 	  this[kSocket][kError] = err;
 	  this[kClient][kOnError](err);
 	}
@@ -12013,6 +12085,36 @@ function requireClientH2 () {
 	 * @this {import('http2').ClientHttp2Session}
 	 * @param {number} errorCode
 	 */
+	// Backport of #5410 and #5569. HTTP/2 multiplexes, so requests complete out of
+	// order; advancing kRunningIdx blindly retired whichever request happened to
+	// sit at the head instead of the one that actually finished, which both lost
+	// requests and left phantom running slots behind.
+	function completeRequest (client, request, resetPendingIdx = false) {
+	  const queue = client[kQueue];
+	  const runningIdx = client[kRunningIdx];
+
+	  // In-order completion: clear the request and advance without splicing.
+	  // The client's resume loop compacts cleared slots once the index grows.
+	  if (runningIdx < client[kPendingIdx] && queue[runningIdx] === request) {
+	    queue[runningIdx] = null;
+	    client[kRunningIdx] = runningIdx + 1;
+	    return
+	  }
+
+	  const index = queue.indexOf(request, runningIdx);
+
+	  if (index === -1 || index >= client[kPendingIdx]) {
+	    return
+	  }
+
+	  queue.splice(index, 1);
+	  client[kPendingIdx]--;
+
+	  if (resetPendingIdx && client[kPendingIdx] < client[kRunningIdx]) {
+	    client[kPendingIdx] = client[kRunningIdx];
+	  }
+	}
+
 	function onHttp2SessionGoAway (errorCode) {
 	  // TODO(mcollina): Verify if GOAWAY implements the spec correctly:
 	  // https://datatracker.ietf.org/doc/html/rfc7540#section-6.8
@@ -12034,7 +12136,9 @@ function requireClientH2 () {
 	  if (client[kRunningIdx] < client[kQueue].length) {
 	    const request = client[kQueue][client[kRunningIdx]];
 	    client[kQueue][client[kRunningIdx]++] = null;
-	    util.errorRequest(client, request, err);
+	    if (request != null) {
+	      util.errorRequest(client, request, err);
+	    }
 	    client[kPendingIdx] = client[kRunningIdx];
 	  }
 
@@ -12067,7 +12171,9 @@ function requireClientH2 () {
 	    const requests = client[kQueue].splice(client[kRunningIdx]);
 	    for (let i = 0; i < requests.length; i++) {
 	      const request = requests[i];
-	      util.errorRequest(client, request, err);
+	      if (request != null) {
+	        util.errorRequest(client, request, err);
+	      }
 	    }
 	  }
 	}
@@ -12094,8 +12200,6 @@ function requireClientH2 () {
 	}
 
 	function onHttp2SocketError (err) {
-	  assert(err.code !== 'ERR_TLS_CERT_ALTNAME_INVALID');
-
 	  this[kError] = err;
 
 	  this[kClient][kOnError](err);
@@ -12115,7 +12219,10 @@ function requireClientH2 () {
 	}
 
 	function writeH2 (client, request) {
-	  const requestTimeout = request.bodyTimeout ?? client[kBodyTimeout];
+	  // Time to the response headers, then time between body chunks. Using
+	  // bodyTimeout for both made headersTimeout a no-op over HTTP/2.
+	  const headersTimeout = request.headersTimeout ?? client[kHeadersTimeout];
+	  const bodyTimeout = request.bodyTimeout ?? client[kBodyTimeout];
 	  const session = client[kHTTP2Session];
 	  const { method, path, host, upgrade, expectContinue, signal, protocol, headers: reqHeaders } = request;
 	  let { body } = request;
@@ -12182,6 +12289,7 @@ function requireClientH2 () {
 
 	      // We move the running index to the next request
 	      client[kOnError](err);
+	      completeRequest(client, request);
 	      client[kResume]();
 	    }
 
@@ -12229,14 +12337,18 @@ function requireClientH2 () {
 
 	      stream = session.request(headers, { endStream: false, signal });
 	      stream[kHTTP2Stream] = true;
+	      ++session[kOpenStreams];
 
 	      stream.once('response', (headers, _flags) => {
 	        const { [HTTP2_HEADER_STATUS]: statusCode, ...realHeaders } = headers;
 
-	        request.onUpgrade(statusCode, parseH2Headers(realHeaders), stream);
-
-	        ++session[kOpenStreams];
-	        client[kQueue][client[kRunningIdx]++] = null;
+	        try {
+	          request.onUpgrade(statusCode, parseH2Headers(realHeaders), stream);
+	        } catch (err) {
+	          abort(err);
+	          return
+	        }
+	        completeRequest(client, request);
 	      });
 
 	      stream.on('error', () => {
@@ -12253,7 +12365,7 @@ function requireClientH2 () {
 	        if (session[kOpenStreams] === 0) session.unref();
 	      });
 
-	      stream.setTimeout(requestTimeout);
+	      stream.setTimeout(headersTimeout);
 	      return true
 	    }
 
@@ -12264,18 +12376,24 @@ function requireClientH2 () {
 	    // We disabled endStream to allow the user to write to the stream
 	    stream = session.request(headers, { endStream: false, signal });
 	    stream[kHTTP2Stream] = true;
+	    ++session[kOpenStreams];
 	    stream.on('response', headers => {
 	      const { [HTTP2_HEADER_STATUS]: statusCode, ...realHeaders } = headers;
 
-	      request.onUpgrade(statusCode, parseH2Headers(realHeaders), stream);
-	      ++session[kOpenStreams];
-	      client[kQueue][client[kRunningIdx]++] = null;
+	      try {
+	        request.onUpgrade(statusCode, parseH2Headers(realHeaders), stream);
+	      } catch (err) {
+	        abort(err);
+	        return
+	      }
+	      completeRequest(client, request);
 	    });
+	    stream.on('error', abort);
 	    stream.once('close', () => {
 	      session[kOpenStreams] -= 1;
 	      if (session[kOpenStreams] === 0) session.unref();
 	    });
-	    stream.setTimeout(requestTimeout);
+	    stream.setTimeout(headersTimeout);
 
 	    return true
 	  }
@@ -12376,7 +12494,7 @@ function requireClientH2 () {
 
 	  // Increment counter as we have new streams open
 	  ++session[kOpenStreams];
-	  stream.setTimeout(requestTimeout);
+	  stream.setTimeout(headersTimeout);
 
 	  // Track whether we received a response (headers)
 	  let responseReceived = false;
@@ -12385,6 +12503,7 @@ function requireClientH2 () {
 	    const { [HTTP2_HEADER_STATUS]: statusCode, ...realHeaders } = headers;
 	    request.onResponseStarted();
 	    responseReceived = true;
+	    stream.setTimeout(bodyTimeout);
 
 	    // Due to the stream nature, it is possible we face a race condition
 	    // where the stream has been assigned, but the request has been aborted
@@ -12419,14 +12538,13 @@ function requireClientH2 () {
 	        request.onComplete({});
 	      }
 
-	      client[kQueue][client[kRunningIdx]++] = null;
+	      completeRequest(client, request);
 	      client[kResume]();
 	    } else {
 	      // Stream ended without receiving a response - this is an error
 	      // (e.g., server destroyed the stream before sending headers)
 	      abort(new InformationalError('HTTP/2: stream half-closed (remote)'));
-	      client[kQueue][client[kRunningIdx]++] = null;
-	      client[kPendingIdx] = client[kRunningIdx];
+	      completeRequest(client, request, true);
 	      client[kResume]();
 	    }
 	  });
@@ -12436,6 +12554,14 @@ function requireClientH2 () {
 	    session[kOpenStreams] -= 1;
 	    if (session[kOpenStreams] === 0) {
 	      session.unref();
+	    }
+
+	    // A stream can close without ever emitting 'end' or 'error': a peer's
+	    // RST_STREAM(CANCEL) received before the response is reported by Node as a
+	    // bare 'close', and destroying the stream unenrolls its timeout, so no
+	    // 'timeout' follows either. Nothing else would ever settle this request.
+	    if (!request.aborted && !request.completed) {
+	      abort(new InformationalError('HTTP/2: stream closed before the response was complete'));
 	    }
 	  });
 
@@ -12454,7 +12580,9 @@ function requireClientH2 () {
 	  });
 
 	  stream.on('timeout', () => {
-	    const err = new InformationalError(`HTTP/2: "stream timeout after ${requestTimeout}"`);
+	    const err = responseReceived
+	      ? new BodyTimeoutError(`HTTP/2: "body timeout after ${bodyTimeout}"`)
+	      : new HeadersTimeoutError(`HTTP/2: "headers timeout after ${headersTimeout}"`);
 	    stream.removeAllListeners('data');
 	    session[kOpenStreams] -= 1;
 
@@ -12817,7 +12945,8 @@ function requireClient () {
 	    initialWindowSize,
 	    connectionWindowSize,
 	    pingInterval,
-	    webSocket
+	    webSocket,
+	    eventSource
 	  } = {}) {
 	    if (keepAlive !== undefined) {
 	      throw new InvalidArgumentError('unsupported keepAlive, use pipelining=0 instead')
@@ -12925,7 +13054,7 @@ function requireClient () {
 	      throw new InvalidArgumentError('pingInterval must be a positive integer, greater or equal to 0')
 	    }
 
-	    super({ webSocket });
+	    super({ webSocket, eventSource });
 
 	    if (typeof connect !== 'function') {
 	      connect = buildConnector({
@@ -13074,7 +13203,9 @@ function requireClient () {
 	      const requests = this[kQueue].splice(this[kPendingIdx]);
 	      for (let i = 0; i < requests.length; i++) {
 	        const request = requests[i];
-	        util.errorRequest(this, request, err);
+	        if (request != null) {
+	          util.errorRequest(this, request, err);
+	        }
 	      }
 
 	      const callback = () => {
@@ -13113,7 +13244,9 @@ function requireClient () {
 
 	    for (let i = 0; i < requests.length; i++) {
 	      const request = requests[i];
-	      util.errorRequest(client, request, err);
+	      if (request != null) {
+	        util.errorRequest(client, request, err);
+	      }
 	    }
 	    assert(client[kSize] === 0);
 	  }
@@ -13912,14 +14045,16 @@ function requireBalancedPool () {
 	}
 
 	class BalancedPool extends PoolBase {
-	  constructor (upstreams = [], { factory = defaultFactory, ...opts } = {}) {
+	  constructor (upstreams = [], { factory = defaultFactory, connect, tls, ...opts } = {}) {
 	    if (typeof factory !== 'function') {
 	      throw new InvalidArgumentError('factory must be a function.')
 	    }
 
 	    super(opts);
 
-	    this[kOptions] = { ...util.deepClone(opts) };
+	    if (connect && typeof connect !== 'function') connect = { ...connect };
+	    if (tls && typeof tls !== 'function') tls = { ...tls };
+	    this[kOptions] = { ...util.deepClone(opts), connect, tls };
 	    this[kOptions].interceptors = opts.interceptors
 	      ? { ...opts.interceptors }
 	      : undefined;
@@ -14257,7 +14392,7 @@ function requireAgent () {
 	}
 
 	class Agent extends DispatcherBase {
-	  constructor ({ factory = defaultFactory, maxOrigins = Infinity, connect, ...options } = {}) {
+	  constructor ({ factory = defaultFactory, maxOrigins = Infinity, connect, tls, ...options } = {}) {
 	    if (typeof factory !== 'function') {
 	      throw new InvalidArgumentError('factory must be a function.')
 	    }
@@ -14276,7 +14411,11 @@ function requireAgent () {
 	      connect = { ...connect };
 	    }
 
-	    this[kOptions] = { ...util.deepClone(options), maxOrigins, connect };
+	    if (tls && typeof tls !== 'function') {
+	      tls = { ...tls };
+	    }
+
+	    this[kOptions] = { ...util.deepClone(options), maxOrigins, connect, tls };
 	    this[kFactory] = factory;
 	    this[kClients] = new Map();
 	    this[kOrigins] = new Set();
@@ -15835,6 +15974,55 @@ function requireRetryHandler () {
 	  }
 	}
 
+	// A stable controller handed to the downstream handler for the lifetime of the
+	// request. Each transparent retry/resume is a separate dispatch with its own
+	// connection controller. The proxy always forwards to the active connection
+	// while preserving a downstream pause across controller replacement.
+	class RetryController {
+	  #paused = false
+	  #target = null
+
+	  set target (target) {
+	    this.#target = target;
+	    if (this.#paused) {
+	      target?.pause();
+	    }
+	  }
+
+	  get target () { return this.#target }
+
+	  pause () {
+	    this.#paused = true;
+	    this.#target?.pause();
+	  }
+
+	  resume () {
+	    this.#paused = false;
+	    this.#target?.resume();
+	  }
+
+	  abort (reason) {
+	    this.#target?.abort(reason);
+	  }
+
+	  get paused () { return this.#paused || (this.#target?.paused ?? false) }
+	  get aborted () { return this.#target?.aborted ?? false }
+	  get reason () { return this.#target?.reason ?? null }
+	  get rawHeaders () { return this.#target?.rawHeaders ?? null }
+	  set rawHeaders (value) {
+	    if (this.#target) {
+	      this.#target.rawHeaders = value;
+	    }
+	  }
+
+	  get rawTrailers () { return this.#target?.rawTrailers ?? null }
+	  set rawTrailers (value) {
+	    if (this.#target) {
+	      this.#target.rawTrailers = value;
+	    }
+	  }
+	}
+
 	class RetryHandler {
 	  constructor (opts, { dispatch, handler }) {
 	    const { retryOptions, ...dispatchOpts } = opts;
@@ -15889,14 +16077,23 @@ function requireRetryHandler () {
 	    this.start = 0;
 	    this.end = null;
 	    this.etag = null;
+	    this.controllerProxy = new RetryController();
 	  }
 
 	  onResponseStartWithRetry (controller, statusCode, headers, statusMessage, err) {
 	    if (this.retryOpts.throwOnError) {
 	      // Preserve old behavior for status codes that are not eligible for retry
 	      if (this.retryOpts.statusCodes.includes(statusCode) === false) {
-	        this.headersSent = true;
-	        this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage);
+	        if (this.headersSent) {
+	          // The downstream handler already received the response from an
+	          // earlier attempt. Forwarding this response would replace the
+	          // downstream body and leave the original body pending forever.
+	          this.handler.onResponseError?.(this.controllerProxy, err);
+	        } else {
+	          this.headersSent = true;
+	          this.checkpointResponseEnd(headers);
+	          this.handler.onResponseStart?.(this.controllerProxy, statusCode, headers, statusMessage);
+	        }
 	      } else {
 	        this.error = err;
 	      }
@@ -15906,14 +16103,23 @@ function requireRetryHandler () {
 
 	    if (isDisturbed(this.opts.body)) {
 	      this.headersSent = true;
-	      this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage);
+	      this.checkpointResponseEnd(headers);
+	      this.handler.onResponseStart?.(this.controllerProxy, statusCode, headers, statusMessage);
 	      return
 	    }
 
 	    function shouldRetry (passedErr) {
 	      if (passedErr) {
-	        this.headersSent = true;
-	        this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage);
+	        if (this.headersSent) {
+	          // The downstream handler already received the response from an
+	          // earlier attempt. Forwarding this response would replace the
+	          // downstream body and leave the original body pending forever.
+	          this.handler.onResponseError?.(this.controllerProxy, passedErr);
+	        } else {
+	          this.headersSent = true;
+	          this.checkpointResponseEnd(headers);
+	          this.handler.onResponseStart?.(this.controllerProxy, statusCode, headers, statusMessage);
+	        }
 	        controller.resume();
 	        return
 	      }
@@ -15933,14 +16139,29 @@ function requireRetryHandler () {
 	    );
 	  }
 
-	  onRequestStart (controller, context) {
-	    if (!this.headersSent) {
-	      this.handler.onRequestStart?.(controller, context);
+	  checkpointResponseEnd (headers) {
+	    if (this.end == null && this.opts.method !== 'HEAD') {
+	      const contentLength = headers['content-length'];
+	      this.end = contentLength != null ? Number(contentLength) - 1 : null;
+
+	      assert(
+	        this.end == null || Number.isFinite(this.end),
+	        'invalid content-length'
+	      );
+
+	      this.resume = this.end != null;
 	    }
 	  }
 
-	  onRequestUpgrade (controller, statusCode, headers, socket) {
-	    this.handler.onRequestUpgrade?.(controller, statusCode, headers, socket);
+	  onRequestStart (controller, context) {
+	    this.controllerProxy.target = controller;
+	    if (!this.headersSent) {
+	      this.handler.onRequestStart?.(this.controllerProxy, context);
+	    }
+	  }
+
+	  onRequestUpgrade (_controller, statusCode, headers, socket) {
+	    this.handler.onRequestUpgrade?.(this.controllerProxy, statusCode, headers, socket);
 	  }
 
 	  static [kRetryHandlerDefaultRetry] (err, { state, opts }, cb) {
@@ -16053,8 +16274,12 @@ function requireRetryHandler () {
 
 	      const { start, size, end = size ? size - 1 : null } = contentRange;
 
-	      assert(this.start === start, 'content-range mismatch');
-	      assert(this.end == null || this.end === end, 'content-range mismatch');
+	      if (this.start !== start || (this.end != null && this.end !== end)) {
+	        throw new RequestRetryError('Content-Range mismatch', statusCode, {
+	          headers,
+	          data: { count: this.retryCount }
+	        })
+	      }
 
 	      return
 	    }
@@ -16067,7 +16292,7 @@ function requireRetryHandler () {
 	        if (range == null) {
 	          this.headersSent = true;
 	          this.handler.onResponseStart?.(
-	            controller,
+	            this.controllerProxy,
 	            statusCode,
 	            headers,
 	            statusMessage
@@ -16116,7 +16341,7 @@ function requireRetryHandler () {
 
 	      this.headersSent = true;
 	      this.handler.onResponseStart?.(
-	        controller,
+	        this.controllerProxy,
 	        statusCode,
 	        headers,
 	        statusMessage
@@ -16129,30 +16354,30 @@ function requireRetryHandler () {
 	    }
 	  }
 
-	  onResponseData (controller, chunk) {
+	  onResponseData (_controller, chunk) {
 	    if (this.error) {
 	      return
 	    }
 
 	    this.start += chunk.length;
 
-	    this.handler.onResponseData?.(controller, chunk);
+	    this.handler.onResponseData?.(this.controllerProxy, chunk);
 	  }
 
-	  onResponseEnd (controller, trailers) {
+	  onResponseEnd (_controller, trailers) {
 	    if (this.error && this.retryOpts.throwOnError) {
 	      throw this.error
 	    }
 
 	    if (!this.error) {
 	      this.retryCount = 0;
-	      return this.handler.onResponseEnd?.(controller, trailers)
+	      return this.handler.onResponseEnd?.(this.controllerProxy, trailers)
 	    }
 
-	    this.retry(controller);
+	    this.retry();
 	  }
 
-	  retry (controller) {
+	  retry () {
 	    if (this.start !== 0) {
 	      const headers = { range: `bytes=${this.start}-${this.end ?? ''}` };
 
@@ -16174,23 +16399,23 @@ function requireRetryHandler () {
 	      this.retryCountCheckpoint = this.retryCount;
 	      this.dispatch(this.opts, this);
 	    } catch (err) {
-	      this.handler.onResponseError?.(controller, err);
+	      this.handler.onResponseError?.(this.controllerProxy, err);
 	    }
 	  }
 
 	  onResponseError (controller, err) {
-	    if (controller?.aborted || isDisturbed(this.opts.body)) {
-	      this.handler.onResponseError?.(controller, err);
+	    if (controller?.aborted || isDisturbed(this.opts.body) || (this.headersSent && !this.resume)) {
+	      this.handler.onResponseError?.(this.controllerProxy, err);
 	      return
 	    }
 
 	    function shouldRetry (returnedErr) {
 	      if (!returnedErr) {
-	        this.retry(controller);
+	        this.retry();
 	        return
 	      }
 
-	      this.handler?.onResponseError?.(controller, returnedErr);
+	      this.handler?.onResponseError?.(this.controllerProxy, returnedErr);
 	    }
 
 	    // We reconcile in case of a mix between network errors
@@ -20691,7 +20916,7 @@ function requireRedirectHandler () {
 	hasRequiredRedirectHandler = 1;
 
 	const util = requireUtil$5();
-	const { kBodyUsed } = requireSymbols();
+	const { kBodyUsed, kRedirectCacheControl } = requireSymbols();
 	const assert = require$$0$1;
 	const { InvalidArgumentError } = requireErrors();
 	const EE = require$$0;
@@ -20737,6 +20962,11 @@ function requireRedirectHandler () {
 	    this.maxRedirections = maxRedirections;
 	    this.handler = handler;
 	    this.history = [];
+	    // Retain cache-control from suppressed redirect hops for an outer cache.
+	    Object.defineProperty(this.history, kRedirectCacheControl, {
+	      value: [],
+	      enumerable: false
+	    });
 
 	    if (util.isStream(this.opts.body)) {
 	      // TODO (fix): Provide some way for the user to cache the file to e.g. /tmp
@@ -20819,6 +21049,8 @@ function requireRedirectHandler () {
 	      this.handler.onResponseStart?.(controller, statusCode, headers, statusMessage);
 	      return
 	    }
+
+	    this.history[kRedirectCacheControl].push(headers['cache-control']);
 
 	    const { origin, pathname, search } = util.parseURL(new URL(this.location, this.opts.origin && new URL(this.opts.path, this.opts.origin)));
 	    const path = search ? `${pathname}${search}` : pathname;
@@ -21084,7 +21316,6 @@ function requireDump () {
 	  #maxSize = 1024 * 1024
 	  #dumped = false
 	  #size = 0
-	  #controller = null
 	  aborted = false
 	  reason = false
 
@@ -21106,7 +21337,6 @@ function requireDump () {
 
 	  onRequestStart (controller, context) {
 	    controller.abort = this.#abort.bind(this);
-	    this.#controller = controller;
 
 	    return super.onRequestStart(controller, context)
 	  }
@@ -21130,43 +21360,32 @@ function requireDump () {
 	  }
 
 	  onResponseError (controller, err) {
-	    if (this.#dumped) {
-	      return
-	    }
-
-	    // On network errors before connect, controller will be null
-	    err = this.#controller?.reason ?? err;
-
-	    super.onResponseError(controller, err);
+	    super.onResponseError(controller, this.aborted === true ? this.reason : err);
 	  }
 
 	  onResponseData (controller, chunk) {
 	    this.#size = this.#size + chunk.length;
 
-	    if (this.#size >= this.#maxSize) {
-	      this.#dumped = true;
+	    if (this.#size > this.#maxSize) {
+	      throw new RequestAbortedError(
+	        `Response size (${this.#size}) larger than maxSize (${this.#maxSize})`
+	      )
+	    }
 
-	      if (this.aborted === true) {
-	        super.onResponseError(controller, this.reason);
-	      } else {
-	        super.onResponseEnd(controller, {});
-	      }
+	    if (this.#size === this.#maxSize) {
+	      this.#dumped = true;
 	    }
 
 	    return true
 	  }
 
 	  onResponseEnd (controller, trailers) {
-	    if (this.#dumped) {
-	      return
-	    }
-
-	    if (this.#controller.aborted === true) {
+	    if (this.aborted === true) {
 	      super.onResponseError(controller, this.reason);
 	      return
 	    }
 
-	    super.onResponseEnd(controller, trailers);
+	    super.onResponseEnd(controller, this.#dumped ? {} : trailers);
 	  }
 	}
 
@@ -23139,6 +23358,7 @@ function requireCacheHandler () {
 	hasRequiredCacheHandler = 1;
 
 	const util = requireUtil$5();
+	const { kRedirectCacheControl } = requireSymbols();
 	const {
 	  parseCacheControlHeader,
 	  hasInvalidCacheControlDirective,
@@ -23150,6 +23370,19 @@ function requireCacheHandler () {
 	const { parseHttpDate } = requireDate();
 
 	function noop () {}
+
+	/**
+	 * @param {string | URL} a
+	 * @param {string | URL} b
+	 * @returns {boolean}
+	 */
+	function sameOrigin (a, b) {
+	  try {
+	    return new URL(String(a)).origin === new URL(String(b)).origin
+	  } catch {
+	    return String(a) === String(b)
+	  }
+	}
 
 	// Status codes that we can use some heuristics on to cache
 	const HEURISTICALLY_CACHEABLE_STATUS_CODES = [
@@ -23290,6 +23523,14 @@ function requireCacheHandler () {
 	  #writeStream
 
 	  /**
+	   * The URLs visited while following redirects, shared by reference from the
+	   * redirect handler through the request context. Carries the suppressed hops'
+	   * cache-control under {@link kRedirectCacheControl}.
+	   * @type {URL[] | undefined}
+	   */
+	  #history
+
+	  /**
 	   * @param {import('../../types/cache-interceptor.d.ts').default.CacheHandlerOptions} opts
 	   * @param {import('../../types/cache-interceptor.d.ts').default.CacheKey} cacheKey
 	   * @param {import('../../types/dispatcher.d.ts').default.DispatchHandler} handler
@@ -23305,6 +23546,9 @@ function requireCacheHandler () {
 	  onRequestStart (controller, context) {
 	    this.#writeStream?.destroy();
 	    this.#writeStream = undefined;
+	    // The redirect handler mutates this shared history as redirects are
+	    // followed, allowing the cache to identify the response's actual origin.
+	    this.#history = context?.history;
 	    this.#handler.onRequestStart?.(controller, context);
 	  }
 
@@ -23344,7 +23588,37 @@ function requireCacheHandler () {
 	      return downstreamOnHeaders()
 	    }
 
+	    // Never store a response produced by a different origin under the original
+	    // request's cache key.
+	    if (this.#history && this.#history.length > 0) {
+	      const finalUrl = this.#history[this.#history.length - 1];
+	      if (!sameOrigin(finalUrl.origin, this.#cacheKey.origin)) {
+	        return downstreamOnHeaders()
+	      }
+	    }
+
+	    // Preserve restrictive cache policy from suppressed redirect responses.
+	    const redirectCacheControl = this.#history?.[kRedirectCacheControl];
+	    if (redirectCacheControl) {
+	      for (const hopCacheControl of redirectCacheControl) {
+	        const hopDirectives = hopCacheControl ? parseCacheControlHeader(hopCacheControl) : {};
+	        if (
+	          hopDirectives['no-store'] === true ||
+	          (this.#cacheType === 'shared' && hopDirectives.private === true)
+	        ) {
+	          return downstreamOnHeaders()
+	        }
+	      }
+	    }
+
 	    const cacheControlHeader = resHeaders['cache-control'];
+	    const cacheControlDirectives = cacheControlHeader ? parseCacheControlHeader(cacheControlHeader) : {};
+
+	    if (revalidationResponseDisallowsCachedReuse(this.#cacheType, resHeaders, cacheControlDirectives)) {
+	      deleteCachedValue(this.#store, this.#cacheKey);
+	      return downstreamOnHeaders()
+	    }
+
 	    const heuristicallyCacheable = resHeaders['last-modified'] && arrayIncludes(HEURISTICALLY_CACHEABLE_STATUS_CODES, statusCode);
 	    if (
 	      !cacheControlHeader &&
@@ -23361,8 +23635,7 @@ function requireCacheHandler () {
 	      return downstreamOnHeaders()
 	    }
 
-	    const cacheControlDirectives = cacheControlHeader ? parseCacheControlHeader(cacheControlHeader) : {};
-	    if (!canCacheResponse(this.#cacheType, statusCode, resHeaders, cacheControlDirectives, this.#cacheKey.headers)) {
+	    if (!canCacheResponse(this.#cacheType, this.#cacheKey.method, statusCode, resHeaders, cacheControlDirectives, this.#cacheKey.headers)) {
 	      if (statusCode === 304 && (cacheControlHeader || revalidationResponseDisallowsCachedReuse(this.#cacheType, resHeaders, cacheControlDirectives))) {
 	        deleteCachedValue(this.#store, this.#cacheKey);
 	      }
@@ -23603,7 +23876,10 @@ function requireCacheHandler () {
 	 */
 	function revalidationResponseDisallowsCachedReuse (cacheType, resHeaders, cacheControlDirectives) {
 	  return cacheControlDirectives['no-store'] === true ||
-	    (cacheType === 'shared' && cacheControlDirectives.private === true) ||
+	    (cacheType === 'shared' && (
+	      cacheControlDirectives.private === true ||
+	      Object.hasOwn(resHeaders, 'set-cookie')
+	    )) ||
 	    (resHeaders.vary ? isInvalidOrWildcardVaryHeader(resHeaders.vary) : false)
 	}
 
@@ -23611,12 +23887,16 @@ function requireCacheHandler () {
 	 * @see https://www.rfc-editor.org/rfc/rfc9111.html#name-storing-responses-to-authen
 	 *
 	 * @param {import('../../types/cache-interceptor.d.ts').default.CacheOptions['type']} cacheType
+	 * @param {string} method
 	 * @param {number} statusCode
 	 * @param {import('../../types/header.d.ts').IncomingHttpHeaders} resHeaders
 	 * @param {import('../../types/cache-interceptor.d.ts').default.CacheControlDirectives} cacheControlDirectives
 	 * @param {import('../../types/header.d.ts').IncomingHttpHeaders} [reqHeaders]
 	 */
-	function canCacheResponse (cacheType, statusCode, resHeaders, cacheControlDirectives, reqHeaders) {
+	function canCacheResponse (cacheType, method, statusCode, resHeaders, cacheControlDirectives, reqHeaders) {
+	  if (!arrayIncludes(util.safeHTTPMethods, method)) {
+	    return false
+	  }
 	  // Status code must be final and understood.
 	  if (statusCode < 200 || arrayIncludes(NOT_UNDERSTOOD_STATUS_CODES, statusCode)) {
 	    return false
@@ -23637,7 +23917,10 @@ function requireCacheHandler () {
 	    return false
 	  }
 
-	  if (cacheType === 'shared' && cacheControlDirectives.private === true) {
+	  if (cacheType === 'shared' && (
+	    cacheControlDirectives.private === true ||
+	    Object.hasOwn(resHeaders, 'set-cookie')
+	  )) {
 	    return false
 	  }
 
@@ -24442,7 +24725,10 @@ function requireCache$1 () {
 	 * @returns {boolean}
 	 */
 	function revalidationResponseDisallowsCachedReuse (cacheType, headers) {
-	  if (headers.vary && isInvalidOrWildcardVaryHeader(headers.vary)) {
+	  if (
+	    (headers.vary && isInvalidOrWildcardVaryHeader(headers.vary)) ||
+	    (cacheType === 'shared' && Object.hasOwn(headers, 'set-cookie'))
+	  ) {
 	    return true
 	  }
 
@@ -24701,6 +24987,17 @@ function requireCache$1 () {
 	    return handleUncachedResponse(dispatch, globalOpts, cacheKey, handler, opts, reqCacheControl)
 	  }
 
+	  // Shared stores may outlive the Undici version that wrote them. Do not
+	  // re-serve a Set-Cookie header from an existing shared-cache entry.
+	  if (globalOpts.type === 'shared' && Object.hasOwn(result.headers, 'set-cookie')) {
+	    if (util.isStream(result.body)) {
+	      result.body.on('error', nop).destroy();
+	    }
+
+	    deleteCachedValue(globalOpts.store, cacheKey);
+	    return handleUncachedResponse(dispatch, globalOpts, cacheKey, handler, opts, reqCacheControl)
+	  }
+
 	  const now = Date.now();
 	  if (now > result.deleteAt) {
 	    // Response is expired, cache store shouldn't have given this to us
@@ -24899,6 +25196,11 @@ function requireCache$1 () {
 	       * @type {import('../../types/cache-interceptor.d.ts').default.CacheKey}
 	       */
 	      const cacheKey = makeCacheKey(opts);
+
+	      if (!arrayIncludes(util.safeHTTPMethods, opts.method)) {
+	        return dispatch(opts, new CacheHandler(globalOpts, cacheKey, handler))
+	      }
+
 	      const result = store.get(cacheKey);
 
 	      if (result && typeof result.then === 'function') {
@@ -24936,13 +25238,68 @@ function requireDecompress () {
 	hasRequiredDecompress = 1;
 
 	const { createInflate, createGunzip, createBrotliDecompress, createZstdDecompress } = require$$3$1;
-	const { pipeline } = require$$0$2;
+	const { pipeline, Transform: TransformStream } = require$$0$2;
+	const { InvalidArgumentError, ResponseExceededMaxSizeError } = requireErrors();
 	const DecoratorHandler = requireDecoratorHandler();
 	const { runtimeFeatures } = requireRuntimeFeatures();
 
 	/** @typedef {import('node:stream').Transform} Transform */
 	/** @typedef {import('node:stream').Transform} Controller */
 	/** @typedef {Transform&import('node:zlib').Zlib} DecompressorStream */
+
+	class DecompressController {
+	  #onPause
+	  #onResume
+	  #onAbort
+	  #paused = false
+
+	  constructor (onPause, onResume, onAbort) {
+	    this.#onPause = onPause;
+	    this.#onResume = onResume;
+	    this.#onAbort = onAbort;
+	    this.target = null;
+	  }
+
+	  pause () {
+	    if (this.#paused) {
+	      return
+	    }
+
+	    this.#paused = true;
+	    this.#onPause();
+	  }
+
+	  resume () {
+	    if (!this.#paused) {
+	      return
+	    }
+
+	    this.#paused = false;
+	    this.#onResume();
+	  }
+
+	  abort (reason) {
+	    this.target?.abort(reason);
+	    this.#onAbort(reason);
+	  }
+
+	  get paused () { return this.#paused }
+	  get aborted () { return this.target?.aborted ?? false }
+	  get reason () { return this.target?.reason ?? null }
+	  get rawHeaders () { return this.target?.rawHeaders ?? null }
+	  set rawHeaders (value) {
+	    if (this.target) {
+	      this.target.rawHeaders = value;
+	    }
+	  }
+
+	  get rawTrailers () { return this.target?.rawTrailers ?? null }
+	  set rawTrailers (value) {
+	    if (this.target) {
+	      this.target.rawTrailers = value;
+	    }
+	  }
+	}
 
 	/** @type {Record<string, () => DecompressorStream>} */
 	const supportedEncodings = {
@@ -24956,6 +25313,31 @@ function requireDecompress () {
 	};
 
 	const defaultSkipStatusCodes = /** @type {const} */ ([204, 304]);
+	const defaultMaxSize = 0;
+
+	/**
+	 * Limits the output of one stage in a decompression chain.
+	 * @param {number} maxSize - Maximum output size in bytes
+	 * @returns {Transform}
+	 */
+	function createMaxSizeLimiter (maxSize) {
+	  let size = 0;
+
+	  return new TransformStream({
+	    transform (chunk, _encoding, callback) {
+	      const decompressedSize = size + chunk.length;
+	      if (decompressedSize > maxSize) {
+	        callback(new ResponseExceededMaxSizeError(
+	          `Decompressed response size (${decompressedSize}) exceeded maxSize (${maxSize})`
+	        ));
+	        return
+	      }
+
+	      size = decompressedSize;
+	      callback(null, chunk);
+	    }
+	  })
+	}
 
 	let warningEmitted = /** @type {boolean} */ (false);
 
@@ -24963,20 +25345,160 @@ function requireDecompress () {
 	 * @typedef {Object} DecompressHandlerOptions
 	 * @property {number[]|Readonly<number[]>} [skipStatusCodes=[204, 304]] - List of status codes to skip decompression for
 	 * @property {boolean} [skipErrorResponses] - Whether to skip decompression for error responses (status codes >= 400)
+	 * @property {number} [maxSize=0] - Maximum decompressed response size in bytes. 0 disables the limit
 	 */
 
 	class DecompressHandler extends DecoratorHandler {
 	  /** @type {Transform[]} */
 	  #decompressors = []
+	  /** @type {Record<string, string | string[]> | undefined} */
+	  #trailers
 	  /** @type {Readonly<number[]>} */
 	  #skipStatusCodes
 	  /** @type {boolean} */
 	  #skipErrorResponses
+	  /** @type {number} */
+	  #maxSize
+	  /** @type {number} */
+	  #decompressedSize = 0
+	  /** @type {boolean} */
+	  #terminated = false
+	  /** @type {boolean} */
+	  #inputEnded = false
+	  /** @type {boolean} */
+	  #inputBackpressured = false
+	  /** @type {boolean} */
+	  #upstreamPaused = false
+	  /** @type {boolean} */
+	  #draining = false
+	  /** @type {boolean} */
+	  #drainRequested = false
+	  /** @type {boolean} */
+	  #completionPending = false
+	  /** @type {DecompressorStream | undefined} */
+	  #finalDecompressor
+	  /** @type {DecompressController} */
+	  #controller
 
-	  constructor (handler, { skipStatusCodes = defaultSkipStatusCodes, skipErrorResponses = true } = {}) {
+	  constructor (handler, { skipStatusCodes = defaultSkipStatusCodes, skipErrorResponses = true, maxSize = defaultMaxSize } = {}) {
+	    if (!Number.isSafeInteger(maxSize) || maxSize < 0) {
+	      throw new InvalidArgumentError('maxSize must be a non-negative integer')
+	    }
+
 	    super(handler);
 	    this.#skipStatusCodes = skipStatusCodes;
 	    this.#skipErrorResponses = skipErrorResponses;
+	    this.#maxSize = maxSize;
+	    this.#controller = new DecompressController(
+	      () => this.#onDownstreamPause(),
+	      () => this.#onDownstreamResume(),
+	      reason => {
+	        if (this.#inputEnded && !this.#terminated) {
+	          this.onResponseError(this.#controller, reason);
+	        }
+	      }
+	    );
+	  }
+
+	  #onDownstreamPause () {
+	    this.#pauseUpstream();
+	  }
+
+	  #onDownstreamResume () {
+	    const drainWasDeferred = this.#draining;
+	    this.#drainOutput();
+	    if (!drainWasDeferred) {
+	      this.#resumeUpstreamIfNeeded();
+	      this.#finishIfReady();
+	    }
+	  }
+
+	  #pauseUpstream () {
+	    if (!this.#upstreamPaused && !this.#terminated) {
+	      this.#upstreamPaused = true;
+	      this.#controller.target?.pause();
+	    }
+	  }
+
+	  #resumeUpstreamIfNeeded () {
+	    if (this.#upstreamPaused && !this.#controller.paused && !this.#inputBackpressured) {
+	      this.#upstreamPaused = false;
+	      if (!this.#inputEnded) {
+	        this.#controller.target?.resume();
+	      }
+	    }
+	  }
+
+	  #drainOutput () {
+	    if (this.#terminated || this.#controller.paused || !this.#finalDecompressor) {
+	      return
+	    }
+
+	    if (this.#draining) {
+	      this.#drainRequested = true;
+	      return
+	    }
+
+	    this.#draining = true;
+	    try {
+	      do {
+	        this.#drainRequested = false;
+	        let chunk;
+	        while (!this.#terminated && !this.#controller.paused && (chunk = this.#finalDecompressor.read()) !== null) {
+	          if (this.#maxSize > 0) {
+	            const decompressedSize = this.#decompressedSize + chunk.length;
+	            if (decompressedSize > this.#maxSize) {
+	              this.#fail(new ResponseExceededMaxSizeError(
+	                `Decompressed response size (${decompressedSize}) exceeded maxSize (${this.#maxSize})`
+	              ));
+	              return
+	            }
+
+	            this.#decompressedSize = decompressedSize;
+	          }
+
+	          try {
+	            const result = super.onResponseData(this.#controller, chunk);
+	            if (result === false && !this.#controller.paused) {
+	              this.#controller.pause();
+	            }
+	          } catch (err) {
+	            this.#fail(err);
+	            return
+	          }
+	        }
+	      } while (this.#drainRequested && !this.#terminated && !this.#controller.paused)
+	    } finally {
+	      this.#draining = false;
+	    }
+
+	    this.#resumeUpstreamIfNeeded();
+	    this.#finishIfReady();
+	  }
+
+	  #finishIfReady () {
+	    if (this.#terminated || !this.#completionPending || this.#controller.paused || this.#draining) {
+	      return
+	    }
+
+	    this.#cleanupDecompressors();
+	    try {
+	      super.onResponseEnd(this.#controller, this.#trailers);
+	    } catch (err) {
+	      this.#fail(err);
+	      return
+	    }
+	    this.#terminated = true;
+	  }
+
+	  #onDecompressionEnd () {
+	    if (this.#terminated) {
+	      return
+	    }
+
+	    this.#completionPending = true;
+	    this.#drainOutput();
+	    this.#finishIfReady();
 	  }
 
 	  /**
@@ -24996,7 +25518,7 @@ function requireDecompress () {
 	   * Creates a chain of decompressors for multiple content encodings
 	   *
 	   * @param {string} encodings - Comma-separated list of content encodings
-	   * @returns {Array<DecompressorStream>} - Array of decompressor streams
+	   * @returns {Array<Transform>} - Array of decompressor and limiting streams
 	   * @throws {Error} - If the number of content-encodings exceeds the maximum allowed
 	   */
 	  #createDecompressionChain (encodings) {
@@ -25024,60 +25546,97 @@ function requireDecompress () {
 	      decompressors.push(supportedEncodings[encoding]());
 	    }
 
-	    return decompressors
+	    if (decompressors.length < 2) {
+	      return decompressors
+	    }
+
+	    /** @type {Transform[]} */
+	    const streams = [];
+	    for (let i = 0; i < decompressors.length; i++) {
+	      streams.push(decompressors[i]);
+	      if (i < decompressors.length - 1 && this.#maxSize > 0) {
+	        streams.push(createMaxSizeLimiter(this.#maxSize));
+	      }
+	    }
+
+	    return streams
 	  }
 
 	  /**
-	   * Sets up event handlers for a decompressor stream using readable events
-	   * @param {DecompressorStream} decompressor - The decompressor stream
-	   * @param {Controller} controller - The controller to coordinate with
+	   * Stops decompression and reports an error.
+	   * @param {Error} error - The decompression error
 	   * @returns {void}
 	   */
-	  #setupDecompressorEvents (decompressor, controller) {
-	    decompressor.on('readable', () => {
-	      let chunk;
-	      while ((chunk = decompressor.read()) !== null) {
-	        const result = super.onResponseData(controller, chunk);
-	        if (result === false) {
-	          break
-	        }
-	      }
-	    });
+	  #fail (error) {
+	    if (this.#terminated) {
+	      return
+	    }
 
-	    decompressor.on('error', (error) => {
-	      super.onResponseError(controller, error);
-	    });
+	    if (this.#inputEnded) {
+	      // The request is already marked complete once the compressed input ends,
+	      // so controller.abort() can no longer propagate decoder flush errors.
+	      this.onResponseError(this.#controller, error);
+	    } else {
+	      this.#controller.abort(error);
+	    }
+	  }
+
+	  /**
+	   * Sets up event handlers for the final decompressor stream.
+	   * @param {DecompressorStream} decompressor - The decompressor stream
+	   * @returns {void}
+	   */
+	  #setupDecompressorEvents (decompressor) {
+	    this.#finalDecompressor = decompressor;
+	    decompressor.on('readable', () => this.#drainOutput());
+	    decompressor.on('error', (error) => this.#fail(error));
 	  }
 
 	  /**
 	   * Sets up event handling for a single decompressor
-	   * @param {Controller} controller - The controller to handle events
 	   * @returns {void}
 	   */
-	  #setupSingleDecompressor (controller) {
+	  #setupSingleDecompressor () {
 	    const decompressor = this.#decompressors[0];
-	    this.#setupDecompressorEvents(decompressor, controller);
+	    this.#setupDecompressorEvents(decompressor);
 
-	    decompressor.on('end', () => {
-	      super.onResponseEnd(controller, {});
-	    });
+	    decompressor.on('end', () => this.#onDecompressionEnd());
 	  }
 
 	  /**
 	   * Sets up event handling for multiple chained decompressors using pipeline
-	   * @param {Controller} controller - The controller to handle events
 	   * @returns {void}
 	   */
-	  #setupMultipleDecompressors (controller) {
+	  #setupMultipleDecompressors () {
 	    const lastDecompressor = this.#decompressors[this.#decompressors.length - 1];
-	    this.#setupDecompressorEvents(lastDecompressor, controller);
+	    this.#setupDecompressorEvents(lastDecompressor);
 
 	    pipeline(this.#decompressors, (err) => {
-	      if (err) {
-	        super.onResponseError(controller, err);
+	      if (this.#terminated) {
 	        return
 	      }
-	      super.onResponseEnd(controller, {});
+
+	      if (err) {
+	        this.#fail(err);
+	        return
+	      }
+
+	      this.#onDecompressionEnd();
+	    });
+	  }
+
+	  #setupInputBackpressure () {
+	    const decompressor = this.#decompressors[0];
+	    decompressor.on('drain', () => {
+	      if (this.#terminated) {
+	        return
+	      }
+
+	      this.#inputBackpressured = false;
+	      if (!this.#controller.paused) {
+	        this.#drainOutput();
+	        this.#resumeUpstreamIfNeeded();
+	      }
 	    });
 	  }
 
@@ -25087,6 +25646,16 @@ function requireDecompress () {
 	   */
 	  #cleanupDecompressors () {
 	    this.#decompressors.length = 0;
+	    this.#finalDecompressor = undefined;
+	  }
+
+	  onRequestStart (controller, context) {
+	    this.#controller.target = controller;
+	    return super.onRequestStart(this.#controller, context)
+	  }
+
+	  onRequestUpgrade (controller, statusCode, headers, socket) {
+	    return super.onRequestUpgrade(this.#controller, statusCode, headers, socket)
 	  }
 
 	  /**
@@ -25101,14 +25670,14 @@ function requireDecompress () {
 
 	    // If content encoding is not supported or status code is in skip list
 	    if (this.#shouldSkipDecompression(contentEncoding, statusCode)) {
-	      return super.onResponseStart(controller, statusCode, headers, statusMessage)
+	      return super.onResponseStart(this.#controller, statusCode, headers, statusMessage)
 	    }
 
 	    const decompressors = this.#createDecompressionChain(contentEncoding.toLowerCase());
 
 	    if (decompressors.length === 0) {
 	      this.#cleanupDecompressors();
-	      return super.onResponseStart(controller, statusCode, headers, statusMessage)
+	      return super.onResponseStart(this.#controller, statusCode, headers, statusMessage)
 	    }
 
 	    this.#decompressors = decompressors;
@@ -25116,13 +25685,41 @@ function requireDecompress () {
 	    // Remove compression headers since we're decompressing
 	    const { 'content-encoding': _, 'content-length': __, ...newHeaders } = headers;
 
-	    if (this.#decompressors.length === 1) {
-	      this.#setupSingleDecompressor(controller);
-	    } else {
-	      this.#setupMultipleDecompressors(controller);
+	    if (this.#controller.rawHeaders) {
+	      const rawHeaders = this.#controller.rawHeaders;
+
+	      if (Array.isArray(rawHeaders)) {
+	        const filteredHeaders = [];
+	        for (let i = 0; i < rawHeaders.length; i += 2) {
+	          const headerName = rawHeaders[i];
+	          const name = Buffer.isBuffer(headerName) ? headerName.toString('latin1') : `${headerName}`;
+	          const lowerName = name.toLowerCase();
+
+	          if (lowerName === 'content-encoding' || lowerName === 'content-length') {
+	            continue
+	          }
+
+	          filteredHeaders.push(rawHeaders[i], rawHeaders[i + 1]);
+	        }
+	        rawHeaders.splice(0, rawHeaders.length, ...filteredHeaders);
+	      } else if (typeof rawHeaders === 'object') {
+	        for (const name of Object.keys(rawHeaders)) {
+	          const lowerName = name.toLowerCase();
+	          if (lowerName === 'content-encoding' || lowerName === 'content-length') {
+	            delete rawHeaders[name];
+	          }
+	        }
+	      }
 	    }
 
-	    return super.onResponseStart(controller, statusCode, newHeaders, statusMessage)
+	    this.#setupInputBackpressure();
+	    if (this.#decompressors.length === 1) {
+	      this.#setupSingleDecompressor();
+	    } else {
+	      this.#setupMultipleDecompressors();
+	    }
+
+	    return super.onResponseStart(this.#controller, statusCode, newHeaders, statusMessage)
 	  }
 
 	  /**
@@ -25132,10 +25729,13 @@ function requireDecompress () {
 	   */
 	  onResponseData (controller, chunk) {
 	    if (this.#decompressors.length > 0) {
-	      this.#decompressors[0].write(chunk);
+	      if (!this.#decompressors[0].write(chunk)) {
+	        this.#inputBackpressured = true;
+	        this.#pauseUpstream();
+	      }
 	      return
 	    }
-	    super.onResponseData(controller, chunk);
+	    return super.onResponseData(this.#controller, chunk)
 	  }
 
 	  /**
@@ -25145,11 +25745,12 @@ function requireDecompress () {
 	   */
 	  onResponseEnd (controller, trailers) {
 	    if (this.#decompressors.length > 0) {
+	      this.#inputEnded = true;
+	      this.#trailers = trailers;
 	      this.#decompressors[0].end();
-	      this.#cleanupDecompressors();
 	      return
 	    }
-	    super.onResponseEnd(controller, trailers);
+	    return super.onResponseEnd(this.#controller, trailers)
 	  }
 
 	  /**
@@ -25158,13 +25759,16 @@ function requireDecompress () {
 	   * @returns {void}
 	   */
 	  onResponseError (controller, err) {
-	    if (this.#decompressors.length > 0) {
-	      for (const decompressor of this.#decompressors) {
-	        decompressor.destroy(err);
-	      }
-	      this.#cleanupDecompressors();
+	    if (this.#terminated) {
+	      return
 	    }
-	    super.onResponseError(controller, err);
+
+	    this.#terminated = true;
+	    for (const decompressor of this.#decompressors) {
+	      decompressor.destroy();
+	    }
+	    this.#cleanupDecompressors();
+	    super.onResponseError(this.#controller, err);
 	  }
 	}
 
@@ -25218,6 +25822,7 @@ function requireDeduplicationHandler () {
 	 * @property {number} bufferedBytes
 	 * @property {object | null} pendingTrailers
 	 * @property {boolean} done
+	 * @property {boolean} [pendingStart] onRequestStart deferred until the primary request's context is known
 	 */
 
 	/**
@@ -25231,6 +25836,20 @@ function requireDeduplicationHandler () {
 	   * @type {DispatchHandler}
 	   */
 	  #primaryHandler
+
+	  /**
+	   * Whether the primary request has started (onRequestStart received). Until
+	   * then the request context is unknown and cannot be given to waiting handlers.
+	   * @type {boolean}
+	   */
+	  #requestStarted = false
+
+	  /**
+	   * The primary request context, replayed to waiting handlers so they observe
+	   * the same redirect history as the primary.
+	   * @type {any}
+	   */
+	  #context = null
 
 	  /**
 	   * @type {WaitingHandler[]}
@@ -25314,20 +25933,30 @@ function requireDeduplicationHandler () {
 	    const waitingController = waitingHandler.controller;
 
 	    try {
-	      handler.onRequestStart?.(waitingController, null);
+	      if (this.#requestStarted) {
+	        // The primary request has started, so its context (including the
+	        // redirect history) is known and can be delivered immediately.
+	        handler.onRequestStart?.(waitingController, this.#context);
 
-	      if (waitingController.aborted) {
-	        waitingHandler.done = true;
-	        return true
-	      }
+	        if (waitingController.aborted) {
+	          waitingHandler.done = true;
+	          return true
+	        }
 
-	      if (this.#responseStarted) {
-	        handler.onResponseStart?.(
-	          waitingController,
-	          this.#statusCode,
-	          this.#headers,
-	          this.#statusMessage
-	        );
+	        if (this.#responseStarted) {
+	          handler.onResponseStart?.(
+	            waitingController,
+	            this.#statusCode,
+	            this.#headers,
+	            this.#statusMessage
+	          );
+	        }
+	      } else {
+	        // The primary request has not started yet. Defer onRequestStart until
+	        // its context is known, so the waiting handler observes the same
+	        // redirect history as the primary (a cache handler relies on it to
+	        // reject cross-origin redirect responses).
+	        waitingHandler.pendingStart = true;
 	      }
 	    } catch {
 	      // Ignore errors from waiting handlers
@@ -25348,6 +25977,24 @@ function requireDeduplicationHandler () {
 	   */
 	  onRequestStart (controller, context) {
 	    this.#controller = controller;
+	    if (!this.#requestStarted) {
+	      this.#requestStarted = true;
+	      this.#context = context;
+	      // Deliver the now-known context to handlers that joined before the
+	      // primary request started.
+	      for (const waitingHandler of this.#waitingHandlers) {
+	        if (waitingHandler.pendingStart && !waitingHandler.done && !waitingHandler.controller.aborted) {
+	          waitingHandler.pendingStart = false;
+	          try {
+	            waitingHandler.handler.onRequestStart?.(waitingHandler.controller, context);
+	          } catch {
+	            // Ignore errors from waiting handlers
+	            waitingHandler.done = true;
+	          }
+	        }
+	      }
+	      this.#pruneDoneWaitingHandlers();
+	    }
 	    this.#primaryHandler.onRequestStart?.(controller, context);
 	  }
 
@@ -25521,7 +26168,8 @@ function requireDeduplicationHandler () {
 	      bufferedChunks: [],
 	      bufferedBytes: 0,
 	      pendingTrailers: null,
-	      done: false
+	      done: false,
+	      pendingStart: false
 	    };
 
 	    const state = {
@@ -28769,6 +29417,7 @@ function requireSubresourceIntegrity () {
 
 	const assert = require$$0$1;
 	const { runtimeFeatures } = requireRuntimeFeatures();
+	const { asciiLowercase } = requireInfra();
 
 	/**
 	 * @typedef {object} Metadata
@@ -28833,14 +29482,12 @@ function requireSubresourceIntegrity () {
 
 	/**
 	 * @typedef IsValidSRIHashAlgorithm
+	 * @see https://w3c.github.io/webappsec-subresource-integrity/#valid-sri-hash-algorithm-token
 	 * @type {(algorithm: string) => algorithm is SRIHashAlgorithm}
 	 * @param {*} algorithm
 	 * @returns {algorithm is SRIHashAlgorithm}
 	 */
-
-	const isValidSRIHashAlgorithm = /** @type {IsValidSRIHashAlgorithm} */ (
-	  Map.prototype.has.bind(validSRIHashAlgorithmTokenSet)
-	);
+	const isValidSRIHashAlgorithm = (algorithm) => validSRIHashAlgorithmTokenSet.has(asciiLowercase(algorithm));
 
 	/**
 	 * @param {Uint8Array} bytes
@@ -28996,7 +29643,8 @@ function requireSubresourceIntegrity () {
 	    // 8. Let metadata be the ordered map
 	    // «["alg" → algorithm, "val" → base64-value]».
 	    const metadata = {
-	      alg: algorithm,
+	      // Possible spec bug?
+	      alg: asciiLowercase(algorithm),
 	      val: base64Value
 	    };
 
@@ -31239,8 +31887,6 @@ function requireFetch () {
 	          }
 	          const location = headersList.get('location', true);
 
-	          this.body = new Readable({ read: resume });
-
 	          const willFollow = location && request.redirect === 'follow' &&
 	            redirectStatusSet.has(status);
 
@@ -31258,7 +31904,7 @@ function requireFetch () {
 	            // CVE fix similar to urllib3 (GHSA-gm62-xv2j-4w53) and curl (CVE-2022-32206).
 	            const maxContentEncodings = 5;
 	            if (codings.length > maxContentEncodings) {
-	              reject(new Error(`too many content-encodings in response: ${codings.length}, maximum allowed is ${maxContentEncodings}`));
+	              this.abort(new Error(`too many content-encodings in response: ${codings.length}, maximum allowed is ${maxContentEncodings}`));
 	              return true
 	            }
 
@@ -31295,6 +31941,8 @@ function requireFetch () {
 	              }
 	            }
 	          }
+
+	          this.body = new Readable({ read: resume });
 
 	          const onError = this.onError.bind(this);
 
@@ -32865,8 +33513,27 @@ function requireUtil$2 () {
 	    out.push(`Path=${cookie.path}`);
 	  }
 
-	  if (cookie.expires && cookie.expires.toString() !== 'Invalid Date') {
-	    out.push(`Expires=${toIMFDate(cookie.expires)}`);
+	  // A numeric 0 is the Unix epoch, not an absent value -- the same reason the
+	  // Max-Age check above tests the type rather than truthiness.
+	  //
+	  // expires is Date | number, so the "Invalid Date" check only guards the Date
+	  // form. A number that is not a valid time value (NaN, +/-Infinity, or outside
+	  // the Date range) would otherwise reach toIMFDate, which splices undefined and
+	  // NaN into the header value instead of failing.
+	  if (cookie.expires != null) {
+	    const expiresMs = cookie.expires instanceof Date
+	      ? cookie.expires.getTime()
+	      : cookie.expires;
+
+	    // The largest time value a Date can represent, in milliseconds, i.e.
+	    // 100,000,000 days either side of the epoch (ECMA-262 Date Time Values).
+	    // Anything within it is safe for toIMFDate to format; anything beyond it
+	    // produces an invalid Date and must be ignored instead.
+	    const maxTimeValue = 8640000000000000;
+
+	    if (typeof expiresMs === 'number' && Number.isFinite(expiresMs) && Math.abs(expiresMs) <= maxTimeValue) {
+	      out.push(`Expires=${toIMFDate(cookie.expires)}`);
+	    }
 	  }
 
 	  if (cookie.sameSite) {
@@ -33002,220 +33669,221 @@ function requireParse () {
 	 * @param {Object.<string, unknown>} [cookieAttributeList={}]
 	 */
 	function parseUnparsedAttributes (unparsedAttributes, cookieAttributeList = {}) {
-	  // 1. If the unparsed-attributes string is empty, skip the rest of
-	  //    these steps.
-	  if (unparsedAttributes.length === 0) {
-	    return cookieAttributeList
-	  }
+	  while (true) {
+	    // 1. If the unparsed-attributes string is empty, skip the rest of
+	    //    these steps.
+	    if (unparsedAttributes.length === 0) {
+	      return cookieAttributeList
+	    }
 
-	  // 2. Discard the first character of the unparsed-attributes (which
-	  //    will be a %x3B (";") character).
-	  assert(unparsedAttributes[0] === ';');
-	  unparsedAttributes = unparsedAttributes.slice(1);
+	    // 2. Discard the first character of the unparsed-attributes (which
+	    //    will be a %x3B (";") character).
+	    assert(unparsedAttributes[0] === ';');
+	    unparsedAttributes = unparsedAttributes.slice(1);
 
-	  let cookieAv = '';
+	    let cookieAv = '';
 
-	  // 3. If the remaining unparsed-attributes contains a %x3B (";")
-	  //    character:
-	  if (unparsedAttributes.includes(';')) {
+	    // 3. If the remaining unparsed-attributes contains a %x3B (";")
+	    //    character:
+	    if (unparsedAttributes.includes(';')) {
 	    // 1. Consume the characters of the unparsed-attributes up to, but
 	    //    not including, the first %x3B (";") character.
-	    cookieAv = collectASequenceOfCodePointsFast(
-	      ';',
-	      unparsedAttributes,
-	      { position: 0 }
-	    );
-	    unparsedAttributes = unparsedAttributes.slice(cookieAv.length);
-	  } else {
+	      cookieAv = collectASequenceOfCodePointsFast(
+	        ';',
+	        unparsedAttributes,
+	        { position: 0 }
+	      );
+	      unparsedAttributes = unparsedAttributes.slice(cookieAv.length);
+	    } else {
 	    // Otherwise:
 
-	    // 1. Consume the remainder of the unparsed-attributes.
-	    cookieAv = unparsedAttributes;
-	    unparsedAttributes = '';
-	  }
+	      // 1. Consume the remainder of the unparsed-attributes.
+	      cookieAv = unparsedAttributes;
+	      unparsedAttributes = '';
+	    }
 
-	  // Let the cookie-av string be the characters consumed in this step.
+	    // Let the cookie-av string be the characters consumed in this step.
 
-	  let attributeName = '';
-	  let attributeValue = '';
+	    let attributeName = '';
+	    let attributeValue = '';
 
-	  // 4. If the cookie-av string contains a %x3D ("=") character:
-	  if (cookieAv.includes('=')) {
+	    // 4. If the cookie-av string contains a %x3D ("=") character:
+	    if (cookieAv.includes('=')) {
 	    // 1. The (possibly empty) attribute-name string consists of the
 	    //    characters up to, but not including, the first %x3D ("=")
 	    //    character, and the (possibly empty) attribute-value string
 	    //    consists of the characters after the first %x3D ("=")
 	    //    character.
-	    const position = { position: 0 };
+	      const position = { position: 0 };
 
-	    attributeName = collectASequenceOfCodePointsFast(
-	      '=',
-	      cookieAv,
-	      position
-	    );
-	    attributeValue = cookieAv.slice(position.position + 1);
-	  } else {
+	      attributeName = collectASequenceOfCodePointsFast(
+	        '=',
+	        cookieAv,
+	        position
+	      );
+	      attributeValue = cookieAv.slice(position.position + 1);
+	    } else {
 	    // Otherwise:
 
-	    // 1. The attribute-name string consists of the entire cookie-av
-	    //    string, and the attribute-value string is empty.
-	    attributeName = cookieAv;
-	  }
+	      // 1. The attribute-name string consists of the entire cookie-av
+	      //    string, and the attribute-value string is empty.
+	      attributeName = cookieAv;
+	    }
 
-	  // 5. Remove any leading or trailing WSP characters from the attribute-
-	  //    name string and the attribute-value string.
-	  attributeName = attributeName.trim();
-	  attributeValue = attributeValue.trim();
+	    // 5. Remove any leading or trailing WSP characters from the attribute-
+	    //    name string and the attribute-value string.
+	    attributeName = attributeName.trim();
+	    attributeValue = attributeValue.trim();
 
-	  // 6. If the attribute-value is longer than 1024 octets, ignore the
-	  //    cookie-av string and return to Step 1 of this algorithm.
-	  if (attributeValue.length > maxAttributeValueSize) {
-	    return parseUnparsedAttributes(unparsedAttributes, cookieAttributeList)
-	  }
+	    // 6. If the attribute-value is longer than 1024 octets, ignore the
+	    //    cookie-av string and return to Step 1 of this algorithm.
+	    if (attributeValue.length > maxAttributeValueSize) {
+	      continue
+	    }
 
-	  // 7. Process the attribute-name and attribute-value according to the
-	  //    requirements in the following subsections.  (Notice that
-	  //    attributes with unrecognized attribute-names are ignored.)
-	  const attributeNameLowercase = attributeName.toLowerCase();
+	    // 7. Process the attribute-name and attribute-value according to the
+	    //    requirements in the following subsections.  (Notice that
+	    //    attributes with unrecognized attribute-names are ignored.)
+	    const attributeNameLowercase = attributeName.toLowerCase();
 
-	  // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.1
-	  // If the attribute-name case-insensitively matches the string
-	  // "Expires", the user agent MUST process the cookie-av as follows.
-	  if (attributeNameLowercase === 'expires') {
+	    // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.1
+	    // If the attribute-name case-insensitively matches the string
+	    // "Expires", the user agent MUST process the cookie-av as follows.
+	    if (attributeNameLowercase === 'expires') {
 	    // 1. Let the expiry-time be the result of parsing the attribute-value
 	    //    as cookie-date (see Section 5.1.1).
-	    const expiryTime = new Date(attributeValue);
+	      const expiryTime = new Date(attributeValue);
 
-	    // 2. If the attribute-value failed to parse as a cookie date, ignore
-	    //    the cookie-av.
+	      // 2. If the attribute-value failed to parse as a cookie date, ignore
+	      //    the cookie-av.
 
-	    cookieAttributeList.expires = expiryTime;
-	  } else if (attributeNameLowercase === 'max-age') {
+	      cookieAttributeList.expires = expiryTime;
+	    } else if (attributeNameLowercase === 'max-age') {
 	    // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.2
 	    // If the attribute-name case-insensitively matches the string "Max-
 	    // Age", the user agent MUST process the cookie-av as follows.
 
-	    // 1. If the first character of the attribute-value is not a DIGIT or a
-	    //    "-" character, ignore the cookie-av.
-	    const charCode = attributeValue.charCodeAt(0);
+	      // 1. If the first character of the attribute-value is not a DIGIT or a
+	      //    "-" character, ignore the cookie-av.
+	      const charCode = attributeValue.charCodeAt(0);
 
-	    if ((charCode < 48 || charCode > 57) && attributeValue[0] !== '-') {
-	      return parseUnparsedAttributes(unparsedAttributes, cookieAttributeList)
-	    }
+	      if ((charCode < 48 || charCode > 57) && attributeValue[0] !== '-') {
+	        continue
+	      }
 
-	    // 2. If the remainder of attribute-value contains a non-DIGIT
-	    //    character, ignore the cookie-av.
-	    if (!/^\d+$/.test(attributeValue)) {
-	      return parseUnparsedAttributes(unparsedAttributes, cookieAttributeList)
-	    }
+	      // 2. If the remainder of attribute-value contains a non-DIGIT
+	      //    character, ignore the cookie-av.
+	      if (!/^\d+$/.test(attributeValue)) {
+	        continue
+	      }
 
-	    // 3. Let delta-seconds be the attribute-value converted to an integer.
-	    const deltaSeconds = Number(attributeValue);
+	      // 3. Let delta-seconds be the attribute-value converted to an integer.
+	      const deltaSeconds = Number(attributeValue);
 
-	    // 4. Let cookie-age-limit be the maximum age of the cookie (which
-	    //    SHOULD be 400 days or less, see Section 4.1.2.2).
+	      // 4. Let cookie-age-limit be the maximum age of the cookie (which
+	      //    SHOULD be 400 days or less, see Section 4.1.2.2).
 
-	    // 5. Set delta-seconds to the smaller of its present value and cookie-
-	    //    age-limit.
-	    // deltaSeconds = Math.min(deltaSeconds * 1000, maxExpiresMs)
+	      // 5. Set delta-seconds to the smaller of its present value and cookie-
+	      //    age-limit.
+	      // deltaSeconds = Math.min(deltaSeconds * 1000, maxExpiresMs)
 
-	    // 6. If delta-seconds is less than or equal to zero (0), let expiry-
-	    //    time be the earliest representable date and time.  Otherwise, let
-	    //    the expiry-time be the current date and time plus delta-seconds
-	    //    seconds.
-	    // const expiryTime = deltaSeconds <= 0 ? Date.now() : Date.now() + deltaSeconds
+	      // 6. If delta-seconds is less than or equal to zero (0), let expiry-
+	      //    time be the earliest representable date and time.  Otherwise, let
+	      //    the expiry-time be the current date and time plus delta-seconds
+	      //    seconds.
+	      // const expiryTime = deltaSeconds <= 0 ? Date.now() : Date.now() + deltaSeconds
 
-	    // 7. Append an attribute to the cookie-attribute-list with an
-	    //    attribute-name of Max-Age and an attribute-value of expiry-time.
-	    cookieAttributeList.maxAge = deltaSeconds;
-	  } else if (attributeNameLowercase === 'domain') {
+	      // 7. Append an attribute to the cookie-attribute-list with an
+	      //    attribute-name of Max-Age and an attribute-value of expiry-time.
+	      cookieAttributeList.maxAge = deltaSeconds;
+	    } else if (attributeNameLowercase === 'domain') {
 	    // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.3
 	    // If the attribute-name case-insensitively matches the string "Domain",
 	    // the user agent MUST process the cookie-av as follows.
 
-	    // 1. Let cookie-domain be the attribute-value.
-	    let cookieDomain = attributeValue;
+	      // 1. Let cookie-domain be the attribute-value.
+	      let cookieDomain = attributeValue;
 
-	    // 2. If cookie-domain starts with %x2E ("."), let cookie-domain be
-	    //    cookie-domain without its leading %x2E (".").
-	    if (cookieDomain[0] === '.') {
-	      cookieDomain = cookieDomain.slice(1);
-	    }
+	      // 2. If cookie-domain starts with %x2E ("."), let cookie-domain be
+	      //    cookie-domain without its leading %x2E (".").
+	      if (cookieDomain[0] === '.') {
+	        cookieDomain = cookieDomain.slice(1);
+	      }
 
-	    // 3. Convert the cookie-domain to lower case.
-	    cookieDomain = cookieDomain.toLowerCase();
+	      // 3. Convert the cookie-domain to lower case.
+	      cookieDomain = cookieDomain.toLowerCase();
 
-	    // 4. Append an attribute to the cookie-attribute-list with an
-	    //    attribute-name of Domain and an attribute-value of cookie-domain.
-	    cookieAttributeList.domain = cookieDomain;
-	  } else if (attributeNameLowercase === 'path') {
+	      // 4. Append an attribute to the cookie-attribute-list with an
+	      //    attribute-name of Domain and an attribute-value of cookie-domain.
+	      cookieAttributeList.domain = cookieDomain;
+	    } else if (attributeNameLowercase === 'path') {
 	    // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.4
 	    // If the attribute-name case-insensitively matches the string "Path",
 	    // the user agent MUST process the cookie-av as follows.
 
-	    // 1. If the attribute-value is empty or if the first character of the
-	    //    attribute-value is not %x2F ("/"):
-	    let cookiePath = '';
-	    if (attributeValue.length === 0 || attributeValue[0] !== '/') {
+	      // 1. If the attribute-value is empty or if the first character of the
+	      //    attribute-value is not %x2F ("/"):
+	      let cookiePath = '';
+	      if (attributeValue.length === 0 || attributeValue[0] !== '/') {
 	      // 1. Let cookie-path be the default-path.
-	      cookiePath = '/';
-	    } else {
+	        cookiePath = '/';
+	      } else {
 	      // Otherwise:
 
-	      // 1. Let cookie-path be the attribute-value.
-	      cookiePath = attributeValue;
-	    }
+	        // 1. Let cookie-path be the attribute-value.
+	        cookiePath = attributeValue;
+	      }
 
-	    // 2. Append an attribute to the cookie-attribute-list with an
-	    //    attribute-name of Path and an attribute-value of cookie-path.
-	    cookieAttributeList.path = cookiePath;
-	  } else if (attributeNameLowercase === 'secure') {
+	      // 2. Append an attribute to the cookie-attribute-list with an
+	      //    attribute-name of Path and an attribute-value of cookie-path.
+	      cookieAttributeList.path = cookiePath;
+	    } else if (attributeNameLowercase === 'secure') {
 	    // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.5
 	    // If the attribute-name case-insensitively matches the string "Secure",
 	    // the user agent MUST append an attribute to the cookie-attribute-list
 	    // with an attribute-name of Secure and an empty attribute-value.
 
-	    cookieAttributeList.secure = true;
-	  } else if (attributeNameLowercase === 'httponly') {
+	      cookieAttributeList.secure = true;
+	    } else if (attributeNameLowercase === 'httponly') {
 	    // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.6
 	    // If the attribute-name case-insensitively matches the string
 	    // "HttpOnly", the user agent MUST append an attribute to the cookie-
 	    // attribute-list with an attribute-name of HttpOnly and an empty
 	    // attribute-value.
 
-	    cookieAttributeList.httpOnly = true;
-	  } else if (attributeNameLowercase === 'samesite') {
+	      cookieAttributeList.httpOnly = true;
+	    } else if (attributeNameLowercase === 'samesite') {
 	    // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.7
 	    // If the attribute-name case-insensitively matches the string
 	    // "SameSite", the user agent MUST process the cookie-av as follows:
 
-	    const attributeValueLowercase = attributeValue.toLowerCase();
+	      const attributeValueLowercase = attributeValue.toLowerCase();
 
-	    // 1. If cookie-av's attribute-value is a case-insensitive match for
-	    //    "None", append an attribute to the cookie-attribute-list with an
-	    //    attribute-name of "SameSite" and an attribute-value of "None".
-	    if (attributeValueLowercase === 'none') {
-	      cookieAttributeList.sameSite = 'None';
-	    } else if (attributeValueLowercase === 'strict') {
+	      // 1. If cookie-av's attribute-value is a case-insensitive match for
+	      //    "None", append an attribute to the cookie-attribute-list with an
+	      //    attribute-name of "SameSite" and an attribute-value of "None".
+	      if (attributeValueLowercase === 'none') {
+	        cookieAttributeList.sameSite = 'None';
+	      } else if (attributeValueLowercase === 'strict') {
 	      // 2. If cookie-av's attribute-value is a case-insensitive match for
 	      //    "Strict", append an attribute to the cookie-attribute-list with
 	      //    an attribute-name of "SameSite" and an attribute-value of
 	      //    "Strict".
-	      cookieAttributeList.sameSite = 'Strict';
-	    } else if (attributeValueLowercase === 'lax') {
+	        cookieAttributeList.sameSite = 'Strict';
+	      } else if (attributeValueLowercase === 'lax') {
 	      // 3. If cookie-av's attribute-value is a case-insensitive match for
 	      //    "Lax", append an attribute to the cookie-attribute-list with an
 	      //    attribute-name of "SameSite" and an attribute-value of "Lax".
-	      cookieAttributeList.sameSite = 'Lax';
-	    }
-	  } else {
-	    cookieAttributeList.unparsed ??= [];
+	        cookieAttributeList.sameSite = 'Lax';
+	      }
+	    } else {
+	      cookieAttributeList.unparsed ??= [];
 
-	    cookieAttributeList.unparsed.push(`${attributeName}=${attributeValue}`);
-	  }
+	      cookieAttributeList.unparsed.push(`${attributeName}=${attributeValue}`);
+	    }
 
 	  // 8. Return to Step 1 of this algorithm.
-	  return parseUnparsedAttributes(unparsedAttributes, cookieAttributeList)
+	  }
 	}
 
 	parse = {
@@ -33264,8 +33932,10 @@ function requireCookies () {
 
 	  const cookie = headers.get('cookie');
 
+	  // A null prototype keeps a cookie named `__proto__` from hitting the
+	  // Object.prototype setter, which would silently drop it.
 	  /** @type {Record<string, string>} */
-	  const out = {};
+	  const out = { __proto__: null };
 
 	  if (!cookie) {
 	    return out
@@ -34509,13 +35179,13 @@ function requireConnection () {
 	        // The presence of a session property on the socket indicates HTTP2
 	        // HTTP1
 	        if (response.socket?.session == null) {
-	          failWebsocketConnection(handler, 1002, 'Received network error or non-101 status code.', response.error);
+	          failHandshake(handler, response, 1002, 'Received network error or non-101 status code.', response.error);
 	          return
 	        }
 
 	        // HTTP2
 	        if (response.status !== 200) {
-	          failWebsocketConnection(handler, 1002, 'Received network error or non-200 status code.', response.error);
+	          failHandshake(handler, response, 1002, 'Received network error or non-200 status code.', response.error);
 	          return
 	        }
 	      }
@@ -34530,7 +35200,7 @@ function requireConnection () {
 	      //    header list results in null, failure, or the empty byte
 	      //    sequence, then fail the WebSocket connection.
 	      if (protocols.length !== 0 && !response.headersList.get('Sec-WebSocket-Protocol')) {
-	        failWebsocketConnection(handler, 1002, 'Server did not respond with sent protocols.');
+	        failHandshake(handler, response, 1002, 'Server did not respond with sent protocols.');
 	        return
 	      }
 
@@ -34546,7 +35216,7 @@ function requireConnection () {
 	      //    _Fail the WebSocket Connection_.
 	      //    For H2, no upgrade header is expected.
 	      if (response.socket.session == null && response.headersList.get('Upgrade')?.toLowerCase() !== 'websocket') {
-	        failWebsocketConnection(handler, 1002, 'Server did not set Upgrade header to "websocket".');
+	        failHandshake(handler, response, 1002, 'Server did not set Upgrade header to "websocket".');
 	        return
 	      }
 
@@ -34556,7 +35226,7 @@ function requireConnection () {
 	      //    MUST _Fail the WebSocket Connection_.
 	      //    For H2, no connection header is expected.
 	      if (response.socket.session == null && response.headersList.get('Connection')?.toLowerCase() !== 'upgrade') {
-	        failWebsocketConnection(handler, 1002, 'Server did not set Connection header to "upgrade".');
+	        failHandshake(handler, response, 1002, 'Server did not set Connection header to "upgrade".');
 	        return
 	      }
 
@@ -34570,7 +35240,7 @@ function requireConnection () {
 	      const secWSAccept = response.headersList.get('Sec-WebSocket-Accept');
 	      const digest = crypto.hash('sha1', keyValue + uid, 'base64');
 	      if (secWSAccept !== digest) {
-	        failWebsocketConnection(handler, 1002, 'Incorrect hash received in Sec-WebSocket-Accept header.');
+	        failHandshake(handler, response, 1002, 'Incorrect hash received in Sec-WebSocket-Accept header.');
 	        return
 	      }
 
@@ -34588,7 +35258,7 @@ function requireConnection () {
 	        extensions = parseExtensions(secExtension);
 
 	        if (!extensions.has('permessage-deflate')) {
-	          failWebsocketConnection(handler, 1002, 'Sec-WebSocket-Extensions header does not match.');
+	          failHandshake(handler, response, 1002, 'Sec-WebSocket-Extensions header does not match.');
 	          return
 	        }
 	      }
@@ -34608,8 +35278,8 @@ function requireConnection () {
 	        // is specified, the server needs to include the same field and one of
 	        // the selected subprotocol values in its response for the connection to
 	        // be established.
-	        if (!requestProtocols.includes(secProtocol)) {
-	          failWebsocketConnection(handler, 1002, 'Protocol was not set in the opening handshake.');
+	        if (requestProtocols === null || !requestProtocols.includes(secProtocol)) {
+	          failHandshake(handler, response, 1002, 'Protocol was not set in the opening handshake.');
 	          return
 	        }
 	      }
@@ -34700,6 +35370,16 @@ function requireConnection () {
 	    // Set object’s ready state to CLOSING (2).
 	    object.readyState = states.CLOSING;
 	  }
+	}
+
+	function failHandshake (handler, response, code, reason, cause) {
+	  // The H2 upgrade request has already completed and handed off its stream.
+	  // Aborting the request cannot close that stream after handshake validation fails.
+	  if (response.socket?.session != null && !response.socket.destroyed) {
+	    response.socket.destroy();
+	  }
+
+	  failWebsocketConnection(handler, code, reason);
 	}
 
 	/**
@@ -34806,7 +35486,12 @@ function requirePermessageDeflate () {
 
 	        if (this.#maxPayloadSize > 0 && this.#inflate[kLength] > this.#maxPayloadSize) {
 	          callback(new MessageSizeExceededError());
+	          // The inflater may still hold buffered input that can emit a late
+	          // zlib error. Remove the data listener, then deterministically stop
+	          // the stream so a subsequent 'error' cannot fire without a listener
+	          // (which would terminate the process as an unhandled error event).
 	          this.#inflate.removeAllListeners();
+	          this.#inflate.destroy();
 	          this.#inflate = null;
 	          return
 	        }
@@ -35095,6 +35780,19 @@ function requireReceiver () {
 	        if (isControlFrame(this.#info.opcode)) {
 	          this.#loop = this.parseControlFrame(body);
 	          this.#state = parserStates.INFO;
+
+	          // If the automatic PONG/CLOSE reply filled the socket's write buffer,
+	          // stop parsing and resume on drain so a PING flood cannot grow the
+	          // outbound queue without bound.
+	          if (this.#loop && this.#handler.socket.writableNeedDrain) {
+	            this.#loop = false;
+	            this.#handler.socket.once('drain', () => {
+	              if (this.destroyed) return
+	              this.#loop = true;
+	              this.run(callback);
+	            });
+	            return
+	          }
 	        } else {
 	          if (!this.#info.compressed) {
 	            if (!this.writeFragments(body)) {
@@ -36395,9 +37093,9 @@ function requireWebsocketstream () {
 	  /** @type {ReadableStreamDefaultController} */
 	  #readableStreamController
 
-	  // Each WebSocketStream object has an associated writable stream , which is a WritableStream .
-	  /** @type {WritableStream} */
-	  #writableStream
+	  // Retain the controller so the writable stream can be errored while locked.
+	  /** @type {WritableStreamDefaultController} */
+	  #writableStreamController
 
 	  // Each WebSocketStream object has an associated boolean handshake aborted , which is initially false.
 	  #handshakeAborted = false
@@ -36661,6 +37359,9 @@ function requireWebsocketstream () {
 	    // 12. Let writable be a new WritableStream .
 	    // 13. Set up writable with writeAlgorithm , closeAlgorithm , and abortAlgorithm .
 	    const writable = new WritableStream({
+	      start: (controller) => {
+	        this.#writableStreamController = controller;
+	      },
 	      write: (chunk) => this.#write(chunk),
 	      close: () => closeWebSocketConnection(this.#handler, null, null),
 	      abort: (reason) => this.#closeUsingReason(reason)
@@ -36668,9 +37369,6 @@ function requireWebsocketstream () {
 
 	    // Set stream ’s readable stream to readable .
 	    this.#readableStream = readable;
-
-	    // Set stream ’s writable stream to writable .
-	    this.#writableStream = writable;
 
 	    // Resolve stream ’s opened promise with WebSocketOpenInfo «[ " extensions " → extensions , " protocol " → protocol , " readable " → readable , " writable " → writable ]».
 	    this.#openedPromise.resolve({
@@ -36757,9 +37455,7 @@ function requireWebsocketstream () {
 	      this.#readableStreamController.close();
 
 	      // 6.2. Error stream ’s writable stream with an " InvalidStateError " DOMException indicating that a closed WebSocketStream cannot be written to.
-	      if (!this.#writableStream.locked) {
-	        this.#writableStream.abort(new DOMException('A closed WebSocketStream cannot be written to', 'InvalidStateError'));
-	      }
+	      this.#writableStreamController.error(new DOMException('A closed WebSocketStream cannot be written to', 'InvalidStateError'));
 
 	      // 6.3. Resolve stream ’s closed promise with WebSocketCloseInfo «[ " closeCode " → code , " reason " → reason ]».
 	      this.#closedPromise.resolve({
@@ -36776,7 +37472,7 @@ function requireWebsocketstream () {
 	      this.#readableStreamController?.error(error);
 
 	      // 7.3. Error stream ’s writable stream with error .
-	      this.#writableStream?.abort(error);
+	      this.#writableStreamController?.error(error);
 
 	      // 7.4. Reject stream ’s closed promise with error .
 	      this.#closedPromise.reject(error);
@@ -36903,6 +37599,7 @@ var hasRequiredEventsourceStream;
 function requireEventsourceStream () {
 	if (hasRequiredEventsourceStream) return eventsourceStream;
 	hasRequiredEventsourceStream = 1;
+	const buffer = require$$0$4;
 	const { Transform } = require$$0$2;
 	const { isASCIINumber, isValidLastEventId } = requireUtil();
 
@@ -36926,6 +37623,63 @@ function requireEventsourceStream () {
 	 * @type {32} SPACE
 	 */
 	const SPACE = 0x20;
+
+	const defaultMaxEventSize = buffer.kStringMaxLength;
+
+	const DATA = Buffer.from('data');
+	const EVENT = Buffer.from('event');
+	const ID = Buffer.from('id');
+	const RETRY = Buffer.from('retry');
+
+	// Each data field creates a string node, and each unconsumed input chunk keeps
+	// a Buffer wrapper. The absolute ceiling protects the large default byte limit.
+	const minParserItems = 1024;
+	const maxParserItems = 131072;
+	const bytesPerParserItem = 128;
+
+	function isASCIINumberBytes (buffer, start) {
+	  if (start >= buffer.length) {
+	    return false
+	  }
+
+	  for (let i = start; i < buffer.length; i++) {
+	    if (buffer[i] < 0x30 || buffer[i] > 0x39) {
+	      return false
+	    }
+	  }
+
+	  return true
+	}
+
+	function isValidLastEventIdBytes (buffer, start) {
+	  for (let i = start; i < buffer.length; i++) {
+	    if (buffer[i] === 0x00) {
+	      return false
+	    }
+	  }
+
+	  return true
+	}
+
+	function isFieldName (line, length, field) {
+	  if (length !== field.length) {
+	    return false
+	  }
+
+	  for (let i = 0; i < length; i++) {
+	    if (line[i] !== field[i]) {
+	      return false
+	    }
+	  }
+
+	  return true
+	}
+
+	function createMaxEventSizeExceededError () {
+	  const error = new Error('EventSource message size exceeded');
+	  error.aborted = false;
+	  return error
+	}
 
 	/**
 	 * @typedef {object} EventSourceStreamEvent
@@ -36967,11 +37721,21 @@ function requireEventsourceStream () {
 	  eventEndCheck = false
 
 	  /**
-	   * @type {Buffer|null}
+	   * @type {Buffer[]}
 	   */
-	  buffer = null
+	  chunks = []
 
+	  chunkIndex = 0
 	  pos = 0
+	  lineChunkIndex = 0
+	  linePos = 0
+	  lineLength = 0
+	  eventSize = 0
+	  eventFieldSizes = { data: 0, event: 0, id: 0, retry: 0 }
+	  dataLineCount = 0
+	  maxEventSize
+	  maxDataLines
+	  maxBufferedChunks
 
 	  event = {
 	    data: undefined,
@@ -36983,6 +37747,7 @@ function requireEventsourceStream () {
 	  /**
 	   * @param {object} options
 	   * @param {boolean} [options.readableObjectMode]
+	   * @param {number} [options.maxEventSize]
 	   * @param {eventSourceSettings} [options.eventSourceSettings]
 	   * @param {(chunk: any, encoding?: BufferEncoding | undefined) => boolean} [options.push]
 	   */
@@ -36994,6 +37759,12 @@ function requireEventsourceStream () {
 	    super(options);
 
 	    this.state = options.eventSourceSettings || {};
+	    this.maxEventSize = options.maxEventSize ?? defaultMaxEventSize;
+	    const parserItemLimit = this.maxEventSize > 0
+	      ? Math.min(maxParserItems, Math.max(minParserItems, Math.floor(this.maxEventSize / bytesPerParserItem)))
+	      : 0;
+	    this.maxDataLines = parserItemLimit;
+	    this.maxBufferedChunks = parserItemLimit;
 	    if (options.push) {
 	      this.push = options.push;
 	    }
@@ -37011,92 +37782,28 @@ function requireEventsourceStream () {
 	      return
 	    }
 
-	    // Cache the chunk in the buffer, as the data might not be complete while
-	    // processing it
-	    // TODO: Investigate if there is a more performant way to handle
-	    // incoming chunks
-	    // see: https://github.com/nodejs/undici/issues/2630
-	    if (this.buffer) {
-	      this.buffer = Buffer.concat([this.buffer, chunk]);
-	    } else {
-	      this.buffer = chunk;
+	    // A leading line ending can immediately release the currently buffered
+	    // line, even when it uses the final allowed chunk slot.
+	    if (this.maxEventSize > 0 &&
+	        this.chunks.length >= this.maxBufferedChunks &&
+	        chunk[0] !== LF && chunk[0] !== CR) {
+	      callback(createMaxEventSizeExceededError());
+	      return
 	    }
+	    this.chunks.push(chunk);
 
 	    // Strip leading byte-order-mark if we opened the stream and started
 	    // the processing of the incoming data
 	    if (this.checkBOM) {
-	      switch (this.buffer.length) {
-	        case 1:
-	          // Check if the first byte is the same as the first byte of the BOM
-	          if (this.buffer[0] === BOM[0]) {
-	            // If it is, we need to wait for more data
-	            callback();
-	            return
-	          }
-	          // Set the checkBOM flag to false as we don't need to check for the
-	          // BOM anymore
-	          this.checkBOM = false;
-
-	          // The buffer only contains one byte so we need to wait for more data
-	          callback();
-	          return
-	        case 2:
-	          // Check if the first two bytes are the same as the first two bytes
-	          // of the BOM
-	          if (
-	            this.buffer[0] === BOM[0] &&
-	            this.buffer[1] === BOM[1]
-	          ) {
-	            // If it is, we need to wait for more data, because the third byte
-	            // is needed to determine if it is the BOM or not
-	            callback();
-	            return
-	          }
-
-	          // Set the checkBOM flag to false as we don't need to check for the
-	          // BOM anymore
-	          this.checkBOM = false;
-	          break
-	        case 3:
-	          // Check if the first three bytes are the same as the first three
-	          // bytes of the BOM
-	          if (
-	            this.buffer[0] === BOM[0] &&
-	            this.buffer[1] === BOM[1] &&
-	            this.buffer[2] === BOM[2]
-	          ) {
-	            // If it is, we can drop the buffered data, as it is only the BOM
-	            this.buffer = Buffer.alloc(0);
-	            // Set the checkBOM flag to false as we don't need to check for the
-	            // BOM anymore
-	            this.checkBOM = false;
-
-	            // Await more data
-	            callback();
-	            return
-	          }
-	          // If it is not the BOM, we can start processing the data
-	          this.checkBOM = false;
-	          break
-	        default:
-	          // The buffer is longer than 3 bytes, so we can drop the BOM if it is
-	          // present
-	          if (
-	            this.buffer[0] === BOM[0] &&
-	            this.buffer[1] === BOM[1] &&
-	            this.buffer[2] === BOM[2]
-	          ) {
-	            // Remove the BOM from the buffer
-	            this.buffer = this.buffer.subarray(3);
-	          }
-
-	          // Set the checkBOM flag to false as we don't need to check for the
-	          this.checkBOM = false;
-	          break
+	      if (this.handleBOM()) {
+	        callback();
+	        return
 	      }
 	    }
 
-	    while (this.pos < this.buffer.length) {
+	    while (this.hasCurrentByte()) {
+	      const byte = this.currentByte();
+
 	      // If the previous line ended with an end-of-line, we need to check
 	      // if the next character is also an end-of-line.
 	      if (this.eventEndCheck) {
@@ -37109,10 +37816,9 @@ function requireEventsourceStream () {
 	        if (this.crlfCheck) {
 	          // If the current character is a line feed, we can remove it
 	          // from the buffer and reset the crlfCheck flag
-	          if (this.buffer[this.pos] === LF) {
-	            this.buffer = this.buffer.subarray(this.pos + 1);
-	            this.pos = 0;
+	          if (byte === LF) {
 	            this.crlfCheck = false;
+	            this.consumeCurrentByte();
 
 	            // It is possible that the line feed is not the end of the
 	            // event. We need to check if the next character is an
@@ -37128,19 +37834,17 @@ function requireEventsourceStream () {
 	          this.crlfCheck = false;
 	        }
 
-	        if (this.buffer[this.pos] === LF || this.buffer[this.pos] === CR) {
+	        if (byte === LF || byte === CR) {
 	          // If the current character is a carriage return, we need to
 	          // set the crlfCheck flag to true, as we need to check if the
 	          // next character is a line feed so we can remove it from the
 	          // buffer
-	          if (this.buffer[this.pos] === CR) {
+	          if (byte === CR) {
 	            this.crlfCheck = true;
 	          }
 
-	          this.buffer = this.buffer.subarray(this.pos + 1);
-	          this.pos = 0;
-	          if (
-	            this.event.data !== undefined || this.event.event || this.event.id !== undefined || this.event.retry) {
+	          this.consumeCurrentByte();
+	          if (this.hasPendingEvent()) {
 	            this.processEvent(this.event);
 	          }
 	          this.clearEvent();
@@ -37154,22 +37858,23 @@ function requireEventsourceStream () {
 
 	      // If the current character is an end-of-line, we can process the
 	      // line
-	      if (this.buffer[this.pos] === LF || this.buffer[this.pos] === CR) {
+	      if (byte === LF || byte === CR) {
 	        // If the current character is a carriage return, we need to
 	        // set the crlfCheck flag to true, as we need to check if the
 	        // next character is a line feed
-	        if (this.buffer[this.pos] === CR) {
+	        if (byte === CR) {
 	          this.crlfCheck = true;
 	        }
 
 	        // In any case, we can process the line as we reached an
 	        // end-of-line character
-	        this.parseLine(this.buffer.subarray(0, this.pos), this.event);
-
-	        // Remove the processed line from the buffer
-	        this.buffer = this.buffer.subarray(this.pos + 1);
-	        // Reset the position as we removed the processed line from the buffer
-	        this.pos = 0;
+	        try {
+	          this.parseLine(this.readLine(), this.event);
+	        } catch (error) {
+	          callback(error);
+	          return
+	        }
+	        this.consumeCurrentByte();
 	        // A line was processed and this could be the end of the event. We need
 	        // to check if the next line is empty to determine if the event is
 	        // finished.
@@ -37177,10 +37882,23 @@ function requireEventsourceStream () {
 	        continue
 	      }
 
-	      this.pos++;
+	      // readLine() is only called after CR or LF. Reject an unfinished line
+	      // before it can retain an unbounded number of decoded chunks. The seven
+	      // extra bytes allow the longest field prefix ("event: " or "retry: ").
+	      if (this.maxEventSize > 0 && ++this.lineLength > this.maxEventSize + 7) {
+	        callback(createMaxEventSizeExceededError());
+	        return
+	      }
+	      this.advanceCursor();
 	    }
 
 	    callback();
+	  }
+
+	  _destroy (error, callback) {
+	    this.chunks.length = 0;
+	    this.clearEvent();
+	    super._destroy(error, callback);
 	  }
 
 	  /**
@@ -37202,65 +37920,72 @@ function requireEventsourceStream () {
 	      return
 	    }
 
-	    let field = '';
-	    let value = '';
+	    let fieldLength = line.length;
+	    let valueStart = line.length;
 
 	    // If the line contains a U+003A COLON character (:)
 	    if (colonPosition !== -1) {
-	      // Collect the characters on the line before the first U+003A COLON
-	      // character (:), and let field be that string.
-	      // TODO: Investigate if there is a more performant way to extract the
-	      // field
-	      // see: https://github.com/nodejs/undici/issues/2630
-	      field = line.subarray(0, colonPosition).toString('utf8');
+	      fieldLength = colonPosition;
 
 	      // Collect the characters on the line after the first U+003A COLON
 	      // character (:), and let value be that string.
 	      // If value starts with a U+0020 SPACE character, remove it from value.
-	      let valueStart = colonPosition + 1;
+	      valueStart = colonPosition + 1;
 	      if (line[valueStart] === SPACE) {
 	        ++valueStart;
 	      }
-	      // TODO: Investigate if there is a more performant way to extract the
-	      // value
-	      // see: https://github.com/nodejs/undici/issues/2630
-	      value = line.subarray(valueStart).toString('utf8');
-
-	      // Otherwise, the string is not empty but does not contain a U+003A COLON
-	      // character (:)
-	    } else {
-	      // Process the field using the steps described below, using the whole
-	      // line as the field name, and the empty string as the field value.
-	      field = line.toString('utf8');
-	      value = '';
 	    }
 
-	    // Modify the event with the field name and value. The value is also
-	    // decoded as UTF-8
-	    switch (field) {
-	      case 'data':
-	        if (event[field] === undefined) {
-	          event[field] = value;
-	        } else {
-	          event[field] += `\n${value}`;
-	        }
-	        break
-	      case 'retry':
-	        if (isASCIINumber(value)) {
-	          event[field] = value;
-	        }
-	        break
-	      case 'id':
-	        if (isValidLastEventId(value)) {
-	          event[field] = value;
-	        }
-	        break
-	      case 'event':
-	        if (value.length > 0) {
-	          event[field] = value;
-	        }
-	        break
+	    if (isFieldName(line, fieldLength, DATA)) {
+	      if (this.maxEventSize > 0 && this.dataLineCount >= this.maxDataLines) {
+	        throw createMaxEventSizeExceededError()
+	      }
+	      const valueBytes = line.length - valueStart;
+	      const dataSize = this.eventFieldSizes.data + (event.data === undefined ? 0 : 1) + valueBytes;
+	      this.setEventFieldSize('data', dataSize);
+
+	      const value = line.toString('utf8', valueStart);
+
+	      if (event.data === undefined) {
+	        event.data = value;
+	      } else {
+	        event.data += `\n${value}`;
+	      }
+	      this.dataLineCount++;
+	      return
 	    }
+
+	    if (isFieldName(line, fieldLength, RETRY)) {
+	      if (isASCIINumberBytes(line, valueStart)) {
+	        this.setEventFieldSize('retry', line.length - valueStart);
+	        event.retry = line.toString('utf8', valueStart);
+	      }
+	      return
+	    }
+
+	    if (isFieldName(line, fieldLength, ID)) {
+	      if (isValidLastEventIdBytes(line, valueStart)) {
+	        this.setEventFieldSize('id', line.length - valueStart);
+	        event.id = line.toString('utf8', valueStart);
+	      }
+	      return
+	    }
+
+	    if (isFieldName(line, fieldLength, EVENT)) {
+	      if (valueStart < line.length) {
+	        this.setEventFieldSize('event', line.length - valueStart);
+	        event.event = line.toString('utf8', valueStart);
+	      }
+	    }
+	  }
+
+	  setEventFieldSize (field, size) {
+	    const eventSize = this.eventSize - this.eventFieldSizes[field] + size;
+	    if (this.maxEventSize > 0 && eventSize > this.maxEventSize) {
+	      throw createMaxEventSizeExceededError()
+	    }
+	    this.eventSize = eventSize;
+	    this.eventFieldSizes[field] = size;
 	  }
 
 	  /**
@@ -37289,12 +38014,159 @@ function requireEventsourceStream () {
 	  }
 
 	  clearEvent () {
-	    this.event = {
-	      data: undefined,
-	      event: undefined,
-	      id: undefined,
-	      retry: undefined
-	    };
+	    this.event.data = undefined;
+	    this.event.event = undefined;
+	    this.event.id = undefined;
+	    this.event.retry = undefined;
+	    this.eventSize = 0;
+	    this.dataLineCount = 0;
+	    this.eventFieldSizes.data = 0;
+	    this.eventFieldSizes.event = 0;
+	    this.eventFieldSizes.id = 0;
+	    this.eventFieldSizes.retry = 0;
+	  }
+
+	  hasPendingEvent () {
+	    return this.event.data !== undefined ||
+	      this.event.event !== undefined ||
+	      this.event.id !== undefined ||
+	      this.event.retry !== undefined
+	  }
+
+	  hasCurrentByte () {
+	    return this.chunkIndex < this.chunks.length &&
+	      this.pos < this.chunks[this.chunkIndex].length
+	  }
+
+	  currentByte () {
+	    return this.chunks[this.chunkIndex][this.pos]
+	  }
+
+	  consumeCurrentByte () {
+	    this.advanceCursor();
+	    this.syncLineStartToCursor();
+	  }
+
+	  advanceCursor () {
+	    this.pos++;
+
+	    while (this.chunkIndex < this.chunks.length && this.pos >= this.chunks[this.chunkIndex].length) {
+	      this.chunkIndex++;
+	      this.pos = 0;
+	    }
+	  }
+
+	  syncLineStartToCursor () {
+	    this.lineChunkIndex = this.chunkIndex;
+	    this.linePos = this.pos;
+	    this.lineLength = 0;
+	    this.dropConsumedChunks();
+	  }
+
+	  dropConsumedChunks () {
+	    if (this.lineChunkIndex > 0) {
+	      const consumed = this.lineChunkIndex;
+	      this.chunks.splice(0, consumed);
+	      this.lineChunkIndex = 0;
+	      this.chunkIndex -= consumed;
+	    }
+
+	    if (this.chunkIndex === this.chunks.length) {
+	      this.chunks.length = 0;
+	      this.chunkIndex = 0;
+	      this.pos = 0;
+	      this.lineChunkIndex = 0;
+	      this.linePos = 0;
+	    }
+	  }
+
+	  readLine () {
+	    if (this.lineChunkIndex === this.chunkIndex) {
+	      return this.chunks[this.chunkIndex].subarray(this.linePos, this.pos)
+	    }
+
+	    const chunks = [];
+	    let length = 0;
+
+	    for (let i = this.lineChunkIndex; i <= this.chunkIndex; i++) {
+	      const chunk = this.chunks[i];
+	      const start = i === this.lineChunkIndex ? this.linePos : 0;
+	      const end = i === this.chunkIndex ? this.pos : chunk.length;
+	      const slice = chunk.subarray(start, end);
+	      length += slice.length;
+	      chunks.push(slice);
+	    }
+
+	    return Buffer.concat(chunks, length)
+	  }
+
+	  peekBufferedByte (offset) {
+	    let chunkIndex = this.lineChunkIndex;
+	    let pos = this.linePos;
+
+	    while (chunkIndex < this.chunks.length) {
+	      const chunk = this.chunks[chunkIndex];
+	      const remaining = chunk.length - pos;
+
+	      if (offset < remaining) {
+	        return chunk[pos + offset]
+	      }
+
+	      offset -= remaining;
+	      chunkIndex++;
+	      pos = 0;
+	    }
+	  }
+
+	  discardLeadingBytes (count) {
+	    while (count > 0 && this.lineChunkIndex < this.chunks.length) {
+	      const chunk = this.chunks[this.lineChunkIndex];
+	      const remaining = chunk.length - this.linePos;
+
+	      if (count < remaining) {
+	        this.linePos += count;
+	        count = 0;
+	      } else {
+	        count -= remaining;
+	        this.lineChunkIndex++;
+	        this.linePos = 0;
+	      }
+	    }
+
+	    this.chunkIndex = this.lineChunkIndex;
+	    this.pos = this.linePos;
+	    this.dropConsumedChunks();
+	  }
+
+	  handleBOM () {
+	    const first = this.peekBufferedByte(0);
+	    const second = this.peekBufferedByte(1);
+	    const third = this.peekBufferedByte(2);
+
+	    if (second === undefined) {
+	      if (first === BOM[0]) {
+	        return true
+	      }
+
+	      this.checkBOM = false;
+	      return true
+	    }
+
+	    if (third === undefined) {
+	      if (first === BOM[0] && second === BOM[1]) {
+	        return true
+	      }
+
+	      this.checkBOM = false;
+	      return false
+	    }
+
+	    if (first === BOM[0] && second === BOM[1] && third === BOM[2]) {
+	      this.discardLeadingBytes(3);
+	    }
+
+	    this.checkBOM = false;
+	    return !this.hasCurrentByte()
 	  }
 	}
 
@@ -37321,6 +38193,7 @@ function requireEventsource () {
 	const { isNetworkError } = requireResponse();
 	const { kEnumerableProperty } = requireUtil$5();
 	const { environmentSettingsObject } = requireUtil$4();
+	const { getGlobalDispatcher } = requireGlobal();
 
 	let experimentalWarned = false;
 
@@ -37603,6 +38476,7 @@ function requireEventsource () {
 
 	      const eventSourceStream = new EventSourceStream({
 	        eventSourceSettings: this.#state,
+	        maxEventSize: this.#dispatcher.eventSourceOptions?.maxEventSize,
 	        push: (event) => {
 	          this.dispatchEvent(createFastMessageEvent(
 	            event.type,
@@ -37787,7 +38661,8 @@ function requireEventsource () {
 	  },
 	  {
 	    key: 'dispatcher', // undici only
-	    converter: webidl.converters.any
+	    converter: webidl.converters.any,
+	    defaultValue: () => getGlobalDispatcher()
 	  },
 	  {
 	    key: 'node', // undici only
