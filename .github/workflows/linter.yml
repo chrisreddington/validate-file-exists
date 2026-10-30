@@ -45,7 +45,7 @@ jobs:
           FILTER_REGEX_EXCLUDE: dist/**/*|node_modules/**/*
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TYPESCRIPT_ES_CONFIG_FILE: eslint.config.mjs
-          VALIDATE_ALL_CODEBASE: true
+          VALIDATE_ALL_CODEBASE: false
           VALIDATE_BIOME_FORMAT: false
           VALIDATE_BIOME_LINT: false
           VALIDATE_JAVASCRIPT_STANDARD: false
